@@ -1,0 +1,8 @@
+[package]
+name = "reqwester-core"
+description = "A core to create type-safe apis. Inspired by teloxide-core and tower"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]

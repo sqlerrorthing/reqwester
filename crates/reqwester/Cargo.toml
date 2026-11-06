@@ -1,0 +1,12 @@
+[package]
+name = "reqwester"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[features]
+macros = ["dep:reqwester-macros"]
+
+[dependencies]
+reqwester-core = { path = "../reqwester-core" }
+reqwester-macros = { path = "../reqwester-macros", optional = true }

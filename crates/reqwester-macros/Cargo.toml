@@ -1,0 +1,18 @@
+[package]
+name = "reqwester-macros"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "3.0.9", features = ["full"] }
+quote = "1.0.47"
+proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+proc-macro-crate = "3.5.0"
+heck = "0.5.0"
+pastey = "0.2.3"
+derive-new.workspace = true
+radix_fmt = "1.0.0"
