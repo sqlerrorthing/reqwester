@@ -9,13 +9,14 @@ macro_rules! root {
         use proc_macro_crate::{crate_name, FoundCrate};
         use quote::quote;
 
-        let found_crate = crate_name($name).expect(concat!($name, " is present in `Cargo.toml`"));
-
-        match found_crate {
-            FoundCrate::Itself => quote!(crate),
-            FoundCrate::Name(name) => {
+        match crate_name($name) {
+            Ok(FoundCrate::Itself) => quote!(crate),
+            Ok(FoundCrate::Name(name)) => {
                 let ident = Ident::new(&name, Span::call_site());
                 quote!( #ident )
+            }
+            Err(_) => {
+                quote!( reqwester )
             }
         }
     }};
