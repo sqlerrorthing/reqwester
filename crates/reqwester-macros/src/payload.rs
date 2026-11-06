@@ -100,13 +100,13 @@ impl StructPayload {
                 quote! {
                     #[doc = #doc]
                     fn #ident(mut self, value: impl ::core::convert::Into<#inner>) -> Self {
-                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::option::Option::Some(::core::convert::Into::into(value));
+                        self.payload_mut().#ident = ::core::option::Option::Some(::core::convert::Into::into(value));
                         self
                     }
 
                     #[doc = #set_doc]
                     fn #set(mut self, value: impl ::core::convert::Into<::core::option::Option<#inner>>) -> Self {
-                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::convert::Into::into(value);
+                        self.payload_mut().#ident = ::core::convert::Into::into(value);
                         self
                     }
                 }
@@ -115,12 +115,12 @@ impl StructPayload {
                 quote! {
                     #[doc = #set_doc]
                     fn #ident(mut self, value: impl ::core::iter::IntoIterator<Item = #inner>) -> Self {
-                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::iter::IntoIterator::into_iter(value).collect();
+                        self.payload_mut().#ident = ::core::iter::IntoIterator::into_iter(value).collect();
                         self
                     }
 
                     fn #push(mut self, element: impl ::core::convert::Into<#inner>) -> Self {
-                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident.push(::core::convert::Into::into(element));
+                        self.payload_mut().#ident.push(::core::convert::Into::into(element));
                         self
                     }
                 }
@@ -128,7 +128,7 @@ impl StructPayload {
                 quote! {
                     #[doc = #set_doc]
                     fn #ident(mut self, value: impl ::core::convert::Into<#ty>) -> Self {
-                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::convert::Into::into(value);
+                        self.payload_mut().#ident = ::core::convert::Into::into(value);
                         self
                     }
                 }
