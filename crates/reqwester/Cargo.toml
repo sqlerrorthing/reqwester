@@ -5,6 +5,7 @@ edition.workspace = true
 repository.workspace = true
 
 [features]
+default = []
 macros = ["dep:reqwester-macros"]
 
 [dependencies]

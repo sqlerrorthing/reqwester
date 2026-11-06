@@ -1,7 +1,6 @@
 mod payload;
 mod utils;
 mod requester;
-mod casing;
 
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput, ItemTrait};
@@ -51,10 +50,10 @@ pub fn payload(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn requester(_attr: TokenStream, input: TokenStream) -> TokenStream {
+pub fn requester(attr: TokenStream, input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ItemTrait);
 
-    requester::generate(input)
+    requester::generate(input, attr)
         .unwrap_or_else(|e| e.to_compile_error())
         .into()
 }

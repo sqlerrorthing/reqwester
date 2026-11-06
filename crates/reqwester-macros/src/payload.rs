@@ -55,7 +55,7 @@ pub(crate) fn generate(input: DeriveInput) -> Result<TokenStream> {
             input.ident,
             args,
             named,
-            root!(reqwester_core),
+            root!("reqwester-core"),
         )
         .generate(),
         _ => Err(Error::new_spanned(
@@ -100,13 +100,13 @@ impl StructPayload {
                 quote! {
                     #[doc = #doc]
                     fn #ident(mut self, value: impl ::core::convert::Into<#inner>) -> Self {
-                        self.payload_mut().#ident = ::core::option::Option::Some(::core::convert::Into::into(value));
+                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::option::Option::Some(::core::convert::Into::into(value));
                         self
                     }
 
                     #[doc = #set_doc]
                     fn #set(mut self, value: impl ::core::convert::Into<::core::option::Option<#inner>>) -> Self {
-                        self.payload_mut().#ident = ::core::convert::Into::into(value);
+                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::convert::Into::into(value);
                         self
                     }
                 }
@@ -115,12 +115,12 @@ impl StructPayload {
                 quote! {
                     #[doc = #set_doc]
                     fn #ident(mut self, value: impl ::core::iter::IntoIterator<Item = #inner>) -> Self {
-                        self.payload_mut().#ident = ::core::iter::IntoIterator::into_iter(value).collect();
+                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::iter::IntoIterator::into_iter(value).collect();
                         self
                     }
 
                     fn #push(mut self, element: impl ::core::convert::Into<#inner>) -> Self {
-                        self.payload_mut().#ident.push(::core::convert::Into::into(element));
+                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident.push(::core::convert::Into::into(element));
                         self
                     }
                 }
@@ -128,7 +128,7 @@ impl StructPayload {
                 quote! {
                     #[doc = #set_doc]
                     fn #ident(mut self, value: impl ::core::convert::Into<#ty>) -> Self {
-                        self.payload_mut().#ident = ::core::convert::Into::into(value);
+                        ::core::borrow::BorrowMut::<#st_ident #ty_generics>::borrow_mut(&mut self).#ident = ::core::convert::Into::into(value);
                         self
                     }
                 }
@@ -162,7 +162,7 @@ impl StructPayload {
 
         let where_clause = generics.make_where_clause();
         where_clause.predicates.push(parse_quote!(
-            __Payload: #root::::HasPayload<Payload = #ident #ty_generics>
+            __Payload: #root::HasPayload<Payload = #ident #ty_generics>
         ));
 
         let (impl_generics, _, where_clause) = generics.split_for_impl();
@@ -246,10 +246,8 @@ impl StructPayload {
         Ok(quote! {
             #new
 
-            impl #impl_generics #root::HasPayload for #ident #ty_generics #where_clause {
+            impl #impl_generics #root::Payload for #ident #ty_generics #where_clause {
                 type Output = #output;
-
-                const NAME: &'static str = stringify!(#ident);
             }
 
             #setters

@@ -1,15 +1,39 @@
-use std::hash::{DefaultHasher, Hash, Hasher};
-use crate::casing::IdentCaseExt;
+use crate::utils::{IdentCaseExt, get_container_inner_type, root};
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::{ToTokens, format_ident, quote};
+use quote::{format_ident, quote};
+use radix_fmt::radix_36;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
-use radix_fmt::{radix_3, radix_36};
+use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{Error, FnArg, ItemTrait, Result, ReturnType, Token, TraitItem, TraitItemFn, TraitItemType, Type, parse_quote, Signature, GenericParam, WherePredicate};
-use crate::utils::{get_container_inner_type, root};
+use syn::{custom_keyword, parse, parse_quote, Error, FnArg, GenericParam, ItemTrait, Result, ReturnType, Signature, Token, TraitItem, TraitItemFn, TraitItemType, Type, WherePredicate};
 
-pub(crate) fn generate(mut input: ItemTrait) -> Result<TokenStream> {
-    let root = root!(reqwester_core);
+struct Attr {
+    send: bool,
+}
+
+impl Parse for Attr {
+    fn parse(input: ParseStream) -> Result<Self> {
+        custom_keyword!(Send);
+
+        let send = if input.is_empty() {
+            false
+        } else {
+            input.parse::<Send>()?;
+            true
+        };
+
+        if !input.is_empty() {
+            return Err(input.error("unexpected attribute argument"));
+        }
+
+        Ok(Self { send })
+    }
+}
+
+pub(crate) fn generate(mut input: ItemTrait, attr: proc_macro::TokenStream) -> Result<TokenStream> {
+    let root = root!("reqwester-core");
+    let attr = parse::<Attr>(attr)?;
 
     input
         .items
@@ -22,7 +46,7 @@ pub(crate) fn generate(mut input: ItemTrait) -> Result<TokenStream> {
     for item in input.items {
         match item {
             TraitItem::Fn(mut fun) => {
-                items.push(TraitItem::Type(expand_fn(&root, &mut fun)?));
+                items.push(TraitItem::Type(expand_fn(&root, &attr, &mut fun)?));
                 items.push(TraitItem::Fn(fun));
             }
             x => items.push(x),
@@ -38,7 +62,7 @@ pub(crate) fn generate(mut input: ItemTrait) -> Result<TokenStream> {
     })
 }
 
-fn expand_fn(root: &TokenStream, fun: &mut TraitItemFn) -> Result<TraitItemType> {
+fn expand_fn(root: &TokenStream, attr: &Attr, fun: &mut TraitItemFn) -> Result<TraitItemType> {
     if fun.sig.asyncness.is_some() {
         return Err(Error::new_spanned(
             fun.sig.asyncness,
@@ -63,8 +87,10 @@ fn expand_fn(root: &TokenStream, fun: &mut TraitItemFn) -> Result<TraitItemType>
 
     expand_fn_args(&mut fun.sig)?;
 
+    let send = attr.send.then_some(quote!(+ Send));
+
     Ok(parse_quote! {
-        type #request: #root::Request<Payload = #payload, Error: Into<Self::Error>>;
+        type #request: #root::Request<Payload = #payload, Error: From<Self::Error>> #send;
     })
 }
 
