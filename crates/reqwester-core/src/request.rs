@@ -1,19 +1,21 @@
-use crate::payload::{HasPayload, PayloadOutput, RequestResult};
+use crate::payload::{HasPayload, HasPayloadOutput};
 
+pub type RequestResult<T> =
+    Result<HasPayloadOutput<T>, <T as Request>::Error>;
 
 /// A ready to send request.
 pub trait Request:
     HasPayload 
     + IntoFuture<
-        Output = Result<PayloadOutput<Self>, Self::Error>,
+        Output = RequestResult<Self>,
         IntoFuture = Self::Send
     >
 {
     type Error;
 
-    type Send: Future<Output = Result<RequestResult<Self>, Self::Error>>;
+    type Send: Future<Output = RequestResult<Self>>;
 
-    type SendRef<'a>: Future<Output = Result<RequestResult<Self>, Self::Error>> + 'a
+    type SendRef<'a>: Future<Output = RequestResult<Self>> + 'a
     where
         Self: 'a;
 

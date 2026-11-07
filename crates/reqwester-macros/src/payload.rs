@@ -12,7 +12,6 @@ use syn::{
 #[derive(Clone)]
 pub struct Args {
     pub returns: Type,
-    pub error: Type,
 }
 
 impl Parse for Args {
@@ -20,7 +19,6 @@ impl Parse for Args {
         let args = Punctuated::<MetaNameValue, Token![,]>::parse_terminated(input)?;
 
         let mut returns = None;
-        let mut error = parse_quote!(!);
 
         for arg in args {
             let value = arg.value.clone();
@@ -28,8 +26,6 @@ impl Parse for Args {
 
             if arg.path.is_ident("returns") {
                 returns = Some(ty);
-            } else if arg.path.is_ident("error") {
-                error = ty;
             } else {
                 return Err(Error::new_spanned(arg, "unsupported argument"));
             }
@@ -37,7 +33,6 @@ impl Parse for Args {
 
         Ok(Self {
             returns: returns.ok_or_else(|| Error::new(input.span(), "missing `returns`"))?,
-            error,
         })
     }
 }
@@ -243,7 +238,6 @@ impl StructPayload {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
         let output = &self.args.returns;
-        let error = &self.args.error;
 
         let setters = self.setters();
         let new = self.generate_new();
@@ -253,7 +247,6 @@ impl StructPayload {
 
             impl #impl_generics #root::Payload for #ident #ty_generics #where_clause {
                 type Output = #output;
-                type Error = #error;
             }
 
             #setters

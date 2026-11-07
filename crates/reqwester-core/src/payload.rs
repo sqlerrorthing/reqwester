@@ -1,6 +1,4 @@
-pub type PayloadOutput<T> = <<T as HasPayload>::Payload as Payload>::Output;
-pub type PayloadError<T> = <<T as HasPayload>::Payload as Payload>::Error;
-pub type RequestResult<T> = Result<PayloadOutput<T>, PayloadError<T>>;
+pub type HasPayloadOutput<T> = <<T as HasPayload>::Payload as Payload>::Output;
 
 /// A trait for types that act as containers for a specific [`Payload`]
 pub trait HasPayload {
@@ -16,7 +14,4 @@ pub trait Payload {
     /// The return type
     /// Note: it should not include `Result` wrappers
     type Output;
-
-    /// The payload business error.
-    type Error;
 }
