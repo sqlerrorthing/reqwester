@@ -122,6 +122,7 @@ fn method(ctx: &Context<'_>, m: &Method<'_>, tracing: &TokenStream) -> TokenStre
         request,
         lifetimes,
         args,
+        ..
     } = m;
 
     let generics = (!lifetimes.is_empty()).then(|| quote!(<#(#lifetimes),*>));

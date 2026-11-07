@@ -4,6 +4,8 @@ use syn::{Error, Result};
 
 mod factory;
 #[cfg(feature = "util")]
+mod erased;
+#[cfg(feature = "util")]
 mod retryable;
 #[cfg(feature = "util")]
 mod traced;
@@ -16,14 +18,16 @@ pub(super) fn by_name(name: &Ident) -> Result<Box<dyn Adapter>> {
         "retryable" => Ok(Box::new(retryable::Retryable)),
         #[cfg(feature = "util")]
         "traced" => Ok(Box::new(traced::Traced)),
+        #[cfg(feature = "util")]
+        "erased" => Ok(Box::new(erased::Erased)),
         #[cfg(not(feature = "util"))]
-        "retryable" | "traced" => Err(Error::new_spanned(
+        "retryable" | "traced" | "erased" => Err(Error::new_spanned(
             name,
             "this adapter requires the `util` feature of `reqwester`",
         )),
         _ => Err(Error::new_spanned(
             name,
-            "unknown argument, expected `Send`, `Clone`, `factory`, `retryable` or `traced`",
+            "unknown argument, expected `Send`, `Clone`, `factory`, `retryable`, `traced` or `erased`",
         )),
     }
 }

@@ -43,6 +43,7 @@ fn generate_trait(mut input: ItemTrait, root: &TokenStream, attr: &Attr) -> Resu
         .ok_or_else(|| Error::new(Span::call_site(), "An assoc type `Error` is required"))?;
 
     let adapters = attr.adapters()?;
+    let original = input.clone();
 
     let mut items = Vec::with_capacity(input.items.len());
 
@@ -61,7 +62,7 @@ fn generate_trait(mut input: ItemTrait, root: &TokenStream, attr: &Attr) -> Resu
     input.items = items;
     let forwards = generate_forward(&input);
 
-    let generated = run_adapters(&input, root, attr, &adapters)?;
+    let generated = run_adapters(&input, &original, root, attr, &adapters)?;
 
     Ok(quote! {
         #input
@@ -73,6 +74,7 @@ fn generate_trait(mut input: ItemTrait, root: &TokenStream, attr: &Attr) -> Resu
 /// Runs adapters over the expanded trait and builds the `Ext` traits.
 fn run_adapters(
     input: &ItemTrait,
+    original: &ItemTrait,
     root: &TokenStream,
     attr: &Attr,
     adapters: &[Box<dyn Adapter>],
@@ -81,7 +83,7 @@ fn run_adapters(
         return Ok(TokenStream::new());
     }
 
-    let ctx = Context::new(input, root, attr, adapters)?;
+    let ctx = Context::new(input, original, root, attr, adapters)?;
     let mut out = Output::default();
 
     for adapter in adapters {

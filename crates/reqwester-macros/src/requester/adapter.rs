@@ -4,7 +4,9 @@
 use super::attr::Attr;
 use crate::utils::IdentCaseExt;
 use proc_macro2::{Ident, TokenStream};
-use syn::{Error, FnArg, ItemTrait, Lifetime, Pat, Result, Signature, TraitItem, Visibility};
+use syn::{
+    Error, FnArg, ItemTrait, Lifetime, Pat, Result, Signature, TraitItem, TypeParamBound, Visibility,
+};
 
 use super::method_lifetimes;
 
@@ -47,6 +49,8 @@ pub(super) struct Method<'a> {
     pub lifetimes: Vec<Lifetime>,
     /// Argument names, without the receiver.
     pub args: Vec<Ident>,
+    /// The signature as written by the user.
+    pub original: &'a Signature,
 }
 
 #[allow(dead_code)]
@@ -58,6 +62,8 @@ pub(super) struct Context<'a> {
     pub vis: &'a Visibility,
     pub ident: &'a Ident,
     pub methods: Vec<Method<'a>>,
+    /// Bounds of `type Error` as written by the user.
+    pub error_bounds: Vec<TypeParamBound>,
     enabled: Vec<&'static str>,
 }
 
@@ -65,6 +71,7 @@ pub(super) struct Context<'a> {
 impl<'a> Context<'a> {
     pub fn new(
         input: &'a ItemTrait,
+        original: &'a ItemTrait,
         root: &'a TokenStream,
         attr: &'a Attr,
         adapters: &[Box<dyn Adapter>],
@@ -76,6 +83,11 @@ impl<'a> Context<'a> {
             ));
         }
 
+        let originals = original.items.iter().filter_map(|item| match item {
+            TraitItem::Fn(fun) => Some(&fun.sig),
+            _ => None,
+        });
+
         let methods = input
             .items
             .iter()
@@ -83,7 +95,8 @@ impl<'a> Context<'a> {
                 TraitItem::Fn(fun) => Some(fun),
                 _ => None,
             })
-            .map(|fun| {
+            .zip(originals)
+            .map(|(fun, original)| {
                 let args = fun
                     .sig
                     .inputs
@@ -106,9 +119,19 @@ impl<'a> Context<'a> {
                     request: fun.sig.ident.to_upper_camel_case(),
                     lifetimes: method_lifetimes(&fun.sig),
                     args,
+                    original,
                 })
             })
             .collect::<Result<_>>()?;
+
+        let error_bounds = original
+            .items
+            .iter()
+            .find_map(|item| match item {
+                TraitItem::Type(ty) if ty.ident == "Error" => Some(ty.bounds.iter().cloned().collect()),
+                _ => None,
+            })
+            .unwrap_or_default();
 
         Ok(Self {
             root,
@@ -117,6 +140,7 @@ impl<'a> Context<'a> {
             vis: &input.vis,
             ident: &input.ident,
             methods,
+            error_bounds,
             enabled: adapters.iter().map(|a| a.name()).collect(),
         })
     }
@@ -138,4 +162,15 @@ fn util_root() -> TokenStream {
         }
         Ok(FoundCrate::Itself) | Err(_) => quote::quote!(::reqwester::util),
     }
+}
+
+/// Bounds shared by adapters that keep requests across calls: `Sync` and the lifetime
+/// the request borrows (`'static` without lifetimes).
+pub(super) fn sync_outlives(lifetimes: &[Lifetime]) -> Vec<TokenStream> {
+    let outlives = match lifetimes {
+        [] => quote::quote!('static),
+        lifetimes => quote::quote!(#(#lifetimes)+*),
+    };
+
+    vec![quote::quote!(::core::marker::Sync), outlives]
 }

@@ -80,6 +80,17 @@ where
     }
 }
 
+impl<R: Clone, P, S: Clone> Clone for RetryableRequest<'_, R, P, S> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            policy: Arc::clone(&self.policy),
+            sleeper: self.sleeper.clone(),
+            marker: PhantomData,
+        }
+    }
+}
+
 impl<R: HasPayload, P, S> HasPayload for RetryableRequest<'_, R, P, S> {
     type Payload = R::Payload;
 

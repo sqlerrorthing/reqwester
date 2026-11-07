@@ -101,7 +101,7 @@ where
     }
 }
 
-#[requester(Send, factory, retryable, traced)]
+#[requester(Send, Clone, factory, retryable, traced, erased)]
 pub trait Api {
     type Error: Send + 'static;
 
@@ -239,4 +239,69 @@ async fn traced_composes_with_retryable_and_factories() {
     .traced()
     .retryable(Immediate.max_attempts(2));
     assert!(factory.create().is_ok());
+}
+
+#[tokio::test]
+async fn erased_is_dyn_compatible_and_uniform() {
+    // `dyn` is accepted: this is what makes it object safe; methods are prefixed with `dyn_`.
+    async fn takes_dyn(r: &dyn DynApi<Error = Error>) -> Result<u32, Error> {
+        r.dyn_count(vec![1, 2, 3]).await
+    }
+
+    // `dyn DynApi` (and pointers to it) are requesters
+    async fn takes_requester<R: Api<Error = Error> + ?Sized>(r: &R) -> Result<u32, Error> {
+        r.count(vec![1]).await
+    }
+
+    let (plain, _) = api(0);
+    let erased = plain.clone().erased();
+    assert_eq!(takes_dyn(&erased).await, Ok(3));
+
+    let boxed: Box<dyn DynApi<Error = Error>> = Box::new(erased);
+    let name = String::from("bob");
+    assert_eq!(boxed.dyn_greet(name.as_str()).await, Ok("hi bob".to_string()));
+    assert_eq!(boxed.greet(name.as_str()).await, Ok("hi bob".to_string()));
+    assert_eq!(takes_requester(&*boxed).await, Ok(1));
+    assert_eq!(takes_requester(&boxed).await, Ok(1));
+
+    // differently wrapped requesters in one collection
+    let (flaky, calls) = api(1);
+    let all: Vec<Arc<dyn DynApi<Error = Error>>> = vec![
+        Arc::new(plain.erased()),
+        Arc::new(flaky.traced().retryable(Immediate.max_attempts(3)).erased()),
+    ];
+
+    for requester in &all {
+        assert_eq!(requester.count(vec![7]).await, Ok(1));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    // an erased requester is a requester again: wrappers apply on top, and it is spawnable
+    let requester = all[0].clone().traced();
+    let out = tokio::spawn(async move { requester.count(vec![1, 2]).await }).await.unwrap();
+    assert_eq!(out, Ok(2));
+}
+
+#[tokio::test]
+async fn erased_requests_borrow_and_clone() {
+    let (api, _) = api(0);
+    let api = Arc::new(api.erased()) as Arc<dyn DynApi<Error = Error>>;
+
+    let name = String::from("alice");
+    let request = api.greet(name.as_str());
+    let again = request.clone();
+    assert_eq!(request.await, Ok("hi alice".to_string()));
+    assert_eq!(again.send_ref().await, Ok("hi alice".to_string()));
+}
+
+#[tokio::test]
+async fn erased_factory() {
+    let (api, _) = api(0);
+    let factory = (move || api.clone()).erased();
+
+    let shared = factory.clone();
+    assert_eq!(shared.create().unwrap().count(vec![1]).await, Ok(1));
+
+    let failing = ApiFactoryFn(|| Err::<Impl, _>(Error::Fatal)).erased();
+    assert_eq!(failing.create().err(), Some(Error::Fatal));
 }

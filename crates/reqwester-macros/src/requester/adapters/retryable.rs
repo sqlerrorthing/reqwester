@@ -1,7 +1,7 @@
 //! `#[requester(Send, retryable)]` generates `Retryable{Requester}` (and a factory with `factory`)
 //! plus `.retryable(policy)` in the `Ext` traits. Requests must be `Clone`, one lifetime per method max.
 
-use crate::requester::adapter::{Adapter, Context, Method, Output};
+use crate::requester::adapter::{sync_outlives, Adapter, Context, Method, Output};
 use crate::requester::attr::Attr;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -26,12 +26,7 @@ impl Adapter for Retryable {
     }
 
     fn request_bounds(&self, lifetimes: &[Lifetime]) -> Vec<TokenStream> {
-        let outlives = match lifetimes {
-            [] => quote!('static),
-            lifetimes => quote!(#(#lifetimes)+*),
-        };
-
-        vec![quote!(::core::marker::Sync), outlives]
+        sync_outlives(lifetimes)
     }
 
     fn generate(&self, ctx: &Context<'_>, out: &mut Output) -> Result<()> {
@@ -215,6 +210,7 @@ fn method(ctx: &Context<'_>, m: &Method<'_>, retry: &TokenStream) -> TokenStream
         request,
         lifetimes,
         args,
+        ..
     } = m;
 
     let generics = (!lifetimes.is_empty()).then(|| quote!(<#(#lifetimes),*>));
