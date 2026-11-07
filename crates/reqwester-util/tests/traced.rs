@@ -26,27 +26,42 @@ struct Failing(Ping);
 
 impl HasPayload for Failing {
     type Payload = Ping;
-    fn payload(&self) -> &Ping { &self.0 }
-    fn payload_mut(&mut self) -> &mut Ping { &mut self.0 }
+    fn payload(&self) -> &Ping {
+        &self.0
+    }
+    fn payload_mut(&mut self) -> &mut Ping {
+        &mut self.0
+    }
 }
 impl IntoFuture for Failing {
     type Output = Result<u32, Boom>;
     type IntoFuture = BoxFuture<'static, Result<u32, Boom>>;
-    fn into_future(self) -> Self::IntoFuture { self.send() }
+    fn into_future(self) -> Self::IntoFuture {
+        self.send()
+    }
 }
 impl Request for Failing {
     type Error = Boom;
     type Send = BoxFuture<'static, Result<u32, Boom>>;
     type SendRef<'a> = BoxFuture<'a, Result<u32, Boom>>;
-    fn send(self) -> Self::Send { Box::pin(async { Err(Boom) }) }
-    fn send_ref(&self) -> Self::SendRef<'_> { Box::pin(async { Err(Boom) }) }
+    fn send(self) -> Self::Send {
+        Box::pin(async { Err(Boom) })
+    }
+    fn send_ref(&self) -> Self::SendRef<'_> {
+        Box::pin(async { Err(Boom) })
+    }
 }
 
 #[derive(Clone)]
 struct Buffer(Arc<Mutex<Vec<u8>>>);
 impl io::Write for Buffer {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> { self.0.lock().unwrap().extend_from_slice(buf); Ok(buf.len()) }
-    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 fn capture() -> (Buffer, tracing::subscriber::DefaultGuard) {
@@ -62,7 +77,9 @@ fn capture() -> (Buffer, tracing::subscriber::DefaultGuard) {
 }
 
 impl Buffer {
-    fn text(&self) -> String { String::from_utf8(self.0.lock().unwrap().clone()).unwrap() }
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
 }
 
 #[tokio::test]
@@ -74,7 +91,10 @@ async fn logs_failure_inside_the_span() {
     let log = log.text();
     assert!(log.contains("request{request=\"Ping\"}"), "{log}");
     assert!(log.contains("WARN"), "{log}");
-    assert!(log.contains("request failed") && log.contains("error=boom"), "{log}");
+    assert!(
+        log.contains("request failed") && log.contains("error=boom"),
+        "{log}"
+    );
 }
 
 #[tokio::test]

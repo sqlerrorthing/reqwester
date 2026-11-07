@@ -1,15 +1,10 @@
 use crate::payload::{HasPayload, HasPayloadOutput};
 
-pub type RequestResult<T> =
-    Result<HasPayloadOutput<T>, <T as Request>::Error>;
+pub type RequestResult<T> = Result<HasPayloadOutput<T>, <T as Request>::Error>;
 
 /// A ready to send request.
 pub trait Request:
-    HasPayload 
-    + IntoFuture<
-        Output = RequestResult<Self>,
-        IntoFuture = Self::Send
-    >
+    HasPayload + IntoFuture<Output = RequestResult<Self>, IntoFuture = Self::Send>
 {
     type Error;
 

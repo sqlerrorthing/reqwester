@@ -3,10 +3,9 @@ use derive_new::new;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
 use syn::{
-    Data, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Generics, MetaNameValue,
-    Result, Token, Type, Visibility, parse_quote,
+    Data, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Generics, Result,
+    Token, Type, Visibility, parse_quote,
 };
 
 #[derive(Clone)]

@@ -1,9 +1,9 @@
 mod payload;
-mod utils;
 mod requester;
+mod utils;
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Item};
+use syn::{DeriveInput, Item, parse_macro_input};
 
 /// Derives [`Payload`], `new` (required fields only) and field setters.
 ///

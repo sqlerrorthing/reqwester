@@ -13,7 +13,9 @@ impl Adapter for Factory {
     }
 
     fn generate(&self, ctx: &Context<'_>, out: &mut Output) -> Result<()> {
-        let Context { vis, ident, attr, .. } = ctx;
+        let Context {
+            vis, ident, attr, ..
+        } = ctx;
         let factory = format_ident!("{ident}Factory");
         let factory_fn = format_ident!("{ident}FactoryFn");
         let doc = format!("Creates independent [`{ident}`]s.");

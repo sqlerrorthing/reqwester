@@ -1,5 +1,5 @@
-use proc_macro2::Ident;
 use pastey::paste;
+use proc_macro2::Ident;
 use syn::{GenericArgument, PathArguments, Type};
 
 macro_rules! root {

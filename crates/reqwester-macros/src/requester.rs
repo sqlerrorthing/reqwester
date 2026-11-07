@@ -5,9 +5,13 @@ use radix_fmt::radix_36;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use syn::punctuated::Punctuated;
-use syn::{parse, parse_quote, Error, FnArg, Generics, ImplItem, ImplItemFn, ImplItemType, Item, ItemImpl, ItemTrait, Lifetime, Pat, Result, ReturnType, Signature, Stmt, Token, TraitItem, TraitItemFn, TraitItemType, Type};
+use syn::{
+    Error, FnArg, Generics, ImplItem, ImplItemFn, ImplItemType, Item, ItemImpl, ItemTrait,
+    Lifetime, Pat, Result, ReturnType, Signature, Stmt, Token, TraitItem, TraitItemFn,
+    TraitItemType, Type, parse, parse_quote,
+};
 
-pub(self) mod adapter;
+mod adapter;
 mod adapters;
 mod attr;
 
@@ -45,7 +49,9 @@ fn generate_trait(mut input: ItemTrait, root: &TokenStream, attr: &Attr) -> Resu
     for item in input.items {
         match item {
             TraitItem::Fn(mut fun) => {
-                items.push(TraitItem::Type(expand_trait_fn(root, attr, &adapters, &mut fun)?));
+                items.push(TraitItem::Type(expand_trait_fn(
+                    root, attr, &adapters, &mut fun,
+                )?));
                 items.push(TraitItem::Fn(fun));
             }
             x => items.push(x),
@@ -272,16 +278,17 @@ fn expand_fn_args(sig: &mut Signature) -> Result<Vec<Stmt>> {
 
         let original = (*pat.ty).clone();
 
-        let (new_ty, convert): (Type, TokenStream) = match get_container_inner_type("Vec", &original) {
-            Some(inner) => (
-                parse_quote! { impl ::core::iter::IntoIterator<Item = #inner> },
-                quote!(::core::iter::IntoIterator::into_iter),
-            ),
-            None => (
-                parse_quote! { impl ::core::convert::Into<#original> },
-                quote!(::core::convert::Into::into),
-            ),
-        };
+        let (new_ty, convert): (Type, TokenStream) =
+            match get_container_inner_type("Vec", &original) {
+                Some(inner) => (
+                    parse_quote! { impl ::core::iter::IntoIterator<Item = #inner> },
+                    quote!(::core::iter::IntoIterator::into_iter),
+                ),
+                None => (
+                    parse_quote! { impl ::core::convert::Into<#original> },
+                    quote!(::core::convert::Into::into),
+                ),
+            };
 
         // The parameter itself never needs `mut`; the rebinding keeps the user's pattern.
         let Pat::Ident(ident) = &mut *pat.pat else {
@@ -300,7 +307,7 @@ fn expand_fn_args(sig: &mut Signature) -> Result<Vec<Stmt>> {
             parse_quote! { let #binding: #original = #convert(#name); }
         });
 
-        pat.ty = Box::new(new_ty);
+        *pat.ty = new_ty;
     }
 
     if is_self_found {

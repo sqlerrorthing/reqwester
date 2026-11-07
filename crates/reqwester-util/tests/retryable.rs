@@ -1,6 +1,6 @@
+use futures_core::future::BoxFuture;
 use reqwester_core::{HasPayload, Payload, Request};
 use reqwester_util::retryable::*;
-use futures_core::future::BoxFuture;
 use std::future::IntoFuture;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -35,35 +35,54 @@ impl Flaky {
     fn new(fail_times: u32, error: fn() -> TestError) -> (Self, Arc<AtomicU32>) {
         let calls = Arc::new(AtomicU32::new(0));
         (
-            Self { payload: Ping, calls: calls.clone(), fail_times, error },
+            Self {
+                payload: Ping,
+                calls: calls.clone(),
+                fail_times,
+                error,
+            },
             calls,
         )
     }
 
     fn attempt(&self) -> Result<u32, TestError> {
         let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
-        if n <= self.fail_times { Err((self.error)()) } else { Ok(n) }
+        if n <= self.fail_times {
+            Err((self.error)())
+        } else {
+            Ok(n)
+        }
     }
 }
 
 impl HasPayload for Flaky {
     type Payload = Ping;
-    fn payload(&self) -> &Ping { &self.payload }
-    fn payload_mut(&mut self) -> &mut Ping { &mut self.payload }
+    fn payload(&self) -> &Ping {
+        &self.payload
+    }
+    fn payload_mut(&mut self) -> &mut Ping {
+        &mut self.payload
+    }
 }
 
 impl IntoFuture for Flaky {
     type Output = Result<u32, TestError>;
     type IntoFuture = BoxFuture<'static, Result<u32, TestError>>;
-    fn into_future(self) -> Self::IntoFuture { self.send() }
+    fn into_future(self) -> Self::IntoFuture {
+        self.send()
+    }
 }
 
 impl Request for Flaky {
     type Error = TestError;
     type Send = BoxFuture<'static, Result<u32, TestError>>;
     type SendRef<'a> = BoxFuture<'a, Result<u32, TestError>>;
-    fn send(self) -> Self::Send { Box::pin(async move { self.attempt() }) }
-    fn send_ref(&self) -> Self::SendRef<'_> { Box::pin(async move { self.attempt() }) }
+    fn send(self) -> Self::Send {
+        Box::pin(async move { self.attempt() })
+    }
+    fn send_ref(&self) -> Self::SendRef<'_> {
+        Box::pin(async move { self.attempt() })
+    }
 }
 
 #[tokio::test]
@@ -109,10 +128,15 @@ async fn is_send_and_reusable_by_ref() {
     let (req, calls) = Flaky::new(1, || TestError::Flaky);
     let req = req.retryable(Immediate.max_attempts(3));
 
-    assert_eq!(tokio::spawn(async move {
-        let first = req.send_ref().await;
-        let second = req.send_ref().await;
-        (first, second)
-    }).await.unwrap(), (Ok(2), Ok(3)));
+    assert_eq!(
+        tokio::spawn(async move {
+            let first = req.send_ref().await;
+            let second = req.send_ref().await;
+            (first, second)
+        })
+        .await
+        .unwrap(),
+        (Ok(2), Ok(3))
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 3);
 }

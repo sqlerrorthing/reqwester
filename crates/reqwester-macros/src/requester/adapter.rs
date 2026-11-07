@@ -37,6 +37,7 @@ pub(super) struct Output {
 }
 
 /// A method of the expanded trait.
+#[allow(unused)]
 pub(super) struct Method<'a> {
     /// Expanded signature.
     pub sig: &'a Signature,
@@ -48,12 +49,11 @@ pub(super) struct Method<'a> {
     pub args: Vec<Ident>,
 }
 
+#[allow(dead_code)]
 pub(super) struct Context<'a> {
     /// Path of `reqwester`.
-    #[allow(dead_code)]
     pub root: &'a TokenStream,
     pub util: TokenStream,
-    #[allow(dead_code)]
     pub attr: &'a Attr,
     pub vis: &'a Visibility,
     pub ident: &'a Ident,
@@ -61,6 +61,7 @@ pub(super) struct Context<'a> {
     enabled: Vec<&'static str>,
 }
 
+#[allow(unused)]
 impl<'a> Context<'a> {
     pub fn new(
         input: &'a ItemTrait,

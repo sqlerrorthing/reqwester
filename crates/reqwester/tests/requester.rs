@@ -22,22 +22,41 @@ pub struct Fake<P: Payload>(P, P::Output);
 
 impl<P: Payload> HasPayload for Fake<P> {
     type Payload = P;
-    fn payload(&self) -> &P { &self.0 }
-    fn payload_mut(&mut self) -> &mut P { &mut self.0 }
+    fn payload(&self) -> &P {
+        &self.0
+    }
+    fn payload_mut(&mut self) -> &mut P {
+        &mut self.0
+    }
 }
 
-impl<P: Payload> IntoFuture for Fake<P> where P::Output: Clone {
+impl<P: Payload> IntoFuture for Fake<P>
+where
+    P::Output: Clone,
+{
     type Output = Result<P::Output, ()>;
     type IntoFuture = Ready<Self::Output>;
-    fn into_future(self) -> Self::IntoFuture { ready(Ok(self.1)) }
+    fn into_future(self) -> Self::IntoFuture {
+        ready(Ok(self.1))
+    }
 }
 
-impl<P: Payload> Request for Fake<P> where P::Output: Clone {
+impl<P: Payload> Request for Fake<P>
+where
+    P::Output: Clone,
+{
     type Error = ();
     type Send = Ready<Result<P::Output, ()>>;
-    type SendRef<'a> = Ready<Result<P::Output, ()>> where Self: 'a;
-    fn send(self) -> Self::Send { ready(Ok(self.1)) }
-    fn send_ref(&self) -> Self::SendRef<'_> { ready(Ok(self.1.clone())) }
+    type SendRef<'a>
+        = Ready<Result<P::Output, ()>>
+    where
+        Self: 'a;
+    fn send(self) -> Self::Send {
+        ready(Ok(self.1))
+    }
+    fn send_ref(&self) -> Self::SendRef<'_> {
+        ready(Ok(self.1.clone()))
+    }
 }
 
 #[requester(Send)]
@@ -79,6 +98,9 @@ fn block<F: Future>(f: F) -> F::Output {
 fn works() {
     let owned = String::from("bob");
     let api = Impl;
-    assert_eq!(block(api.greet(owned.as_str()).send()), Ok("hi bob".to_string()));
+    assert_eq!(
+        block(api.greet(owned.as_str()).send()),
+        Ok("hi bob".to_string())
+    );
     assert_eq!(block(api.count(vec![1, 2, 3], 4u32).into_future()), Ok(7));
 }

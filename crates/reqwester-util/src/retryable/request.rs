@@ -1,8 +1,8 @@
 use super::{Attempt, Decision, DefaultSleeper, RetryPolicy, Sleeper};
+use futures_core::future::BoxFuture;
+use reqwester_core::Request;
 use reqwester_core::payload::{HasPayload, HasPayloadOutput};
 use reqwester_core::request::RequestResult;
-use reqwester_core::Request;
-use futures_core::future::BoxFuture;
 use std::future::IntoFuture;
 use std::marker::PhantomData;
 use std::sync::Arc;

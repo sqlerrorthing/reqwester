@@ -1,8 +1,8 @@
 #![feature(impl_trait_in_assoc_type)]
 
+use futures_core::future::BoxFuture;
 use reqwester::util::retryable::*;
 use reqwester::{HasPayload, Payload, Request, requester};
-use futures_core::future::BoxFuture;
 use std::future::IntoFuture;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -42,7 +42,13 @@ pub struct Fake<'p, P: Payload> {
 
 impl<P: Payload + Clone> Clone for Fake<'_, P> {
     fn clone(&self) -> Self {
-        Self { marker: Default::default(), payload: self.payload.clone(), calls: self.calls.clone(), fail_times: self.fail_times, output: self.output }
+        Self {
+            marker: Default::default(),
+            payload: self.payload.clone(),
+            calls: self.calls.clone(),
+            fail_times: self.fail_times,
+            output: self.output,
+        }
     }
 }
 
@@ -58,22 +64,41 @@ impl<P: Payload> Fake<'_, P> {
 
 impl<P: Payload> HasPayload for Fake<'_, P> {
     type Payload = P;
-    fn payload(&self) -> &P { &self.payload }
-    fn payload_mut(&mut self) -> &mut P { &mut self.payload }
+    fn payload(&self) -> &P {
+        &self.payload
+    }
+    fn payload_mut(&mut self) -> &mut P {
+        &mut self.payload
+    }
 }
 
-impl<'p, P: Payload + Send + Sync + 'p> IntoFuture for Fake<'p, P> where P::Output: Send + 'p {
+impl<'p, P: Payload + Send + Sync + 'p> IntoFuture for Fake<'p, P>
+where
+    P::Output: Send + 'p,
+{
     type Output = Result<P::Output, Error>;
     type IntoFuture = BoxFuture<'p, Result<P::Output, Error>>;
-    fn into_future(self) -> Self::IntoFuture { self.send() }
+    fn into_future(self) -> Self::IntoFuture {
+        self.send()
+    }
 }
 
-impl<'p, P: Payload + Send + Sync + 'p> Request for Fake<'p, P> where P::Output: Send + 'p {
+impl<'p, P: Payload + Send + Sync + 'p> Request for Fake<'p, P>
+where
+    P::Output: Send + 'p,
+{
     type Error = Error;
     type Send = BoxFuture<'p, Result<P::Output, Error>>;
-    type SendRef<'a> = BoxFuture<'a, Result<P::Output, Error>> where Self: 'a;
-    fn send(self) -> Self::Send { Box::pin(async move { self.attempt() }) }
-    fn send_ref(&self) -> Self::SendRef<'_> { Box::pin(async move { self.attempt() }) }
+    type SendRef<'a>
+        = BoxFuture<'a, Result<P::Output, Error>>
+    where
+        Self: 'a;
+    fn send(self) -> Self::Send {
+        Box::pin(async move { self.attempt() })
+    }
+    fn send_ref(&self) -> Self::SendRef<'_> {
+        Box::pin(async move { self.attempt() })
+    }
 }
 
 #[requester(Send, factory, retryable, traced)]
@@ -117,7 +142,13 @@ impl Api for Impl {
 
 fn api(fail_times: u32) -> (Impl, Arc<AtomicU32>) {
     let calls = Arc::new(AtomicU32::new(0));
-    (Impl { calls: calls.clone(), fail_times }, calls)
+    (
+        Impl {
+            calls: calls.clone(),
+            fail_times,
+        },
+        calls,
+    )
 }
 
 #[tokio::test]
@@ -143,11 +174,16 @@ async fn gives_up_by_policy() {
 
 #[tokio::test]
 async fn factory_for_closures_arc_and_retryable() {
-    fn create_with<F: ApiFactory>(f: &F) -> F::Requester { f.create().ok().unwrap() }
+    fn create_with<F: ApiFactory>(f: &F) -> F::Requester {
+        f.create().ok().unwrap()
+    }
 
     let (api, calls) = api(2);
 
-    let closure = { let api = api.clone(); move || api.clone() };
+    let closure = {
+        let api = api.clone();
+        move || api.clone()
+    };
     let plain = create_with(&closure);
     assert_eq!(plain.count(vec![1]).await, Err(Error::Flaky));
 
@@ -160,22 +196,30 @@ async fn factory_for_closures_arc_and_retryable() {
 
 #[tokio::test]
 async fn retryable_requester_is_a_requester_and_spawnable() {
-    fn takes_requester<R: Api>(r: R) -> R { r }
+    fn takes_requester<R: Api>(r: R) -> R {
+        r
+    }
 
     let (api, _) = api(1);
     let api = takes_requester(api.retryable(Immediate.max_attempts(2)));
 
-    let out = tokio::spawn(async move { api.count(vec![9]).await }).await.unwrap();
+    let out = tokio::spawn(async move { api.count(vec![9]).await })
+        .await
+        .unwrap();
     assert_eq!(out, Ok(1));
 }
 
 #[tokio::test]
 async fn fallible_factory_passes_the_error() {
     let (api, _) = api(0);
-    let ok = ApiFactoryFn({ let api = api.clone(); move || Ok(api.clone()) });
+    let ok = ApiFactoryFn({
+        let api = api.clone();
+        move || Ok(api.clone())
+    });
     assert!(ok.create().is_ok());
 
-    let failing = ApiFactoryFn(|| Err::<Impl, _>(Error::Fatal)).retryable(Immediate.max_attempts(3));
+    let failing =
+        ApiFactoryFn(|| Err::<Impl, _>(Error::Fatal)).retryable(Immediate.max_attempts(3));
     assert_eq!(failing.create().err(), Some(Error::Fatal));
 }
 
@@ -188,6 +232,11 @@ async fn traced_composes_with_retryable_and_factories() {
     assert_eq!(both.greet(name.as_str()).await, Ok("hi bob".to_string()));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 
-    let factory = { let api = api.clone(); move || api.clone() }.traced().retryable(Immediate.max_attempts(2));
+    let factory = {
+        let api = api.clone();
+        move || api.clone()
+    }
+    .traced()
+    .retryable(Immediate.max_attempts(2));
     assert!(factory.create().is_ok());
 }

@@ -14,7 +14,9 @@ impl Adapter for Traced {
     }
 
     fn generate(&self, ctx: &Context<'_>, out: &mut Output) -> Result<()> {
-        let Context { vis, ident, util, .. } = ctx;
+        let Context {
+            vis, ident, util, ..
+        } = ctx;
         let traced = format_ident!("Traced{ident}");
         let traced_factory = format_ident!("Traced{ident}Factory");
         let tracing = quote!(#util::traced);
@@ -114,7 +116,13 @@ impl Adapter for Traced {
 /// Associated request type and the forwarding method.
 fn method(ctx: &Context<'_>, m: &Method<'_>, tracing: &TokenStream) -> TokenStream {
     let Context { ident, .. } = ctx;
-    let Method { sig, attrs, request, lifetimes, args } = m;
+    let Method {
+        sig,
+        attrs,
+        request,
+        lifetimes,
+        args,
+    } = m;
 
     let generics = (!lifetimes.is_empty()).then(|| quote!(<#(#lifetimes),*>));
     let name = &sig.ident;

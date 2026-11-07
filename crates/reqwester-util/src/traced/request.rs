@@ -1,7 +1,7 @@
 use super::TracedFuture;
+use reqwester_core::Request;
 use reqwester_core::payload::HasPayload;
 use reqwester_core::request::RequestResult;
-use reqwester_core::Request;
 use std::fmt::Display;
 use std::future::IntoFuture;
 

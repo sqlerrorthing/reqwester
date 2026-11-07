@@ -379,7 +379,11 @@ mod tests {
     #[test]
     fn when_looks_at_the_error() {
         let p = Immediate.when(|e: &u32| *e > 1);
-        let at = |error| Attempt { number: 1, elapsed: MS(0), error };
+        let at = |error| Attempt {
+            number: 1,
+            elapsed: MS(0),
+            error,
+        };
 
         assert_eq!(p.decide(at(&1)), Decision::Stop);
         assert_eq!(p.decide(at(&2)), Decision::RETRY_NOW);

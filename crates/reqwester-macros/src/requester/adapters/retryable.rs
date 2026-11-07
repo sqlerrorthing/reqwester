@@ -31,10 +31,7 @@ impl Adapter for Retryable {
             lifetimes => quote!(#(#lifetimes)+*),
         };
 
-        vec![
-            quote!(::core::marker::Sync),
-            outlives,
-        ]
+        vec![quote!(::core::marker::Sync), outlives]
     }
 
     fn generate(&self, ctx: &Context<'_>, out: &mut Output) -> Result<()> {
@@ -45,7 +42,9 @@ impl Adapter for Retryable {
             ));
         }
 
-        let Context { vis, ident, util, .. } = ctx;
+        let Context {
+            vis, ident, util, ..
+        } = ctx;
         let retryable = format_ident!("Retryable{ident}");
         let retryable_factory = format_ident!("Retryable{ident}Factory");
 
@@ -210,7 +209,13 @@ fn bounds(ctx: &Context<'_>, r: &TokenStream) -> TokenStream {
 /// Associated request type and the forwarding method.
 fn method(ctx: &Context<'_>, m: &Method<'_>, retry: &TokenStream) -> TokenStream {
     let Context { ident, .. } = ctx;
-    let Method { sig, attrs, request, lifetimes, args } = m;
+    let Method {
+        sig,
+        attrs,
+        request,
+        lifetimes,
+        args,
+    } = m;
 
     let generics = (!lifetimes.is_empty()).then(|| quote!(<#(#lifetimes),*>));
     let outlives = match lifetimes.as_slice() {
