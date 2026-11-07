@@ -133,7 +133,7 @@ checksum = "ce082a9940a7ace2ad4a8b7d0b1eac6aa378895f18be598230c5f2284ac05426"
 
 [[package]]
 name = "reqwester"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "futures-core",
  "reqwester",
