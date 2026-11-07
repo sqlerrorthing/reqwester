@@ -16,24 +16,21 @@ pub struct Args {
 
 impl Parse for Args {
     fn parse(input: ParseStream) -> Result<Self> {
-        let args = Punctuated::<MetaNameValue, Token![,]>::parse_terminated(input)?;
+        let ident: Ident = input.parse()?;
 
-        let mut returns = None;
-
-        for arg in args {
-            let value = arg.value.clone();
-            let ty: Type = syn::parse2(quote! { #value })?;
-
-            if arg.path.is_ident("returns") {
-                returns = Some(ty);
-            } else {
-                return Err(Error::new_spanned(arg, "unsupported argument"));
-            }
+        if ident != "returns" {
+            return Err(Error::new(ident.span(), "unsupported argument"));
         }
 
-        Ok(Self {
-            returns: returns.ok_or_else(|| Error::new(input.span(), "missing `returns`"))?,
-        })
+        input.parse::<Token![=]>()?;
+
+        let returns: Type = input.parse()?;
+
+        if !input.is_empty() {
+            return Err(input.error("unexpected tokens"));
+        }
+
+        Ok(Self { returns })
     }
 }
 

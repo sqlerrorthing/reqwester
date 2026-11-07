@@ -7,8 +7,8 @@ use syn::{parse_macro_input, DeriveInput, ItemTrait};
 
 /// ```
 /// /// Get a user!
-/// #[derive(Debug, Serialize, Payload)]
-/// #[payload(returns = GetUserResponse)]
+/// #[derive(Debug, Payload)]
+/// #[payload(returns = Option<bool>)]
 /// pub struct GetUser {
 ///     /// The user id
 ///     pub user_id: u64,
