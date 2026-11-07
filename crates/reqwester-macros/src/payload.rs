@@ -1,39 +1,43 @@
+use crate::utils::{get_container_inner_type, root};
 use derive_new::new;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
-use syn::{parse_quote, Data, DataStruct, DeriveInput, Error, Expr, Fields, MetaNameValue, Result, Type, TypePath, Visibility, Generics, FieldsNamed};
-use crate::utils::{get_container_inner_type, root};
+use syn::punctuated::Punctuated;
+use syn::{
+    Data, DataStruct, DeriveInput, Error, Expr, Fields, FieldsNamed, Generics, MetaNameValue,
+    Result, Token, Type, TypePath, Visibility, parse_quote,
+};
 
 #[derive(Clone)]
 pub struct Args {
     pub returns: Type,
+    pub error: Type,
 }
 
 impl Parse for Args {
     fn parse(input: ParseStream) -> Result<Self> {
-        let input = MetaNameValue::parse(input)?;
-        if input.path.is_ident("returns") {
-            if let Expr::Path(path) = input.value {
-                let path = path.path;
-                return Ok(Self {
-                    returns: Type::Path(TypePath {
-                        attrs: vec![],
-                        qself: None,
-                        path,
-                    }),
-                });
-            } else if let Expr::Tuple(tuple) = input.value {
-                return Ok(Self {
-                    returns: parse_quote! { #tuple },
-                });
+        let args = Punctuated::<MetaNameValue, Token![,]>::parse_terminated(input)?;
+
+        let mut returns = None;
+        let mut error = parse_quote!(!);
+
+        for arg in args {
+            let ty: Type = syn::parse2(quote! { #arg.value })?;
+
+            if arg.path.is_ident("returns") {
+                returns = Some(ty);
+            } else if arg.path.is_ident("error") {
+                error = ty;
+            } else {
+                return Err(Error::new_spanned(arg, "unsupported argument"));
             }
         }
 
-        Err(Error::new_spanned(
-            input,
-            "supported only #[payload(returns = ...)]",
-        ))
+        Ok(Self {
+            returns: returns.ok_or_else(|| Error::new(input.span(), "missing `returns`"))?,
+            error,
+        })
     }
 }
 
@@ -190,9 +194,7 @@ impl StructPayload {
 
     fn generate_new(&self) -> TokenStream {
         let Self {
-            ident,
-            generics,
-            ..
+            ident, generics, ..
         } = self;
 
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -212,7 +214,8 @@ impl StructPayload {
                 required_inits.push(quote! { #field_ident: ::core::iter::IntoIterator::into_iter(#field_ident).collect() });
             } else {
                 args.push(quote! { #field_ident: impl ::core::convert::Into<#ty> });
-                required_inits.push(quote! { #field_ident: ::core::convert::Into::into(#field_ident) });
+                required_inits
+                    .push(quote! { #field_ident: ::core::convert::Into::into(#field_ident) });
             }
         }
 
@@ -239,6 +242,7 @@ impl StructPayload {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
         let output = &self.args.returns;
+        let error = &self.args.error;
 
         let setters = self.setters();
         let new = self.generate_new();
@@ -248,6 +252,7 @@ impl StructPayload {
 
             impl #impl_generics #root::Payload for #ident #ty_generics #where_clause {
                 type Output = #output;
+                type Error = #error;
             }
 
             #setters
