@@ -90,7 +90,7 @@ fn expand_fn(root: &TokenStream, attr: &Attr, fun: &mut TraitItemFn) -> Result<T
     let send = attr.send.then_some(quote!(+ Send));
 
     Ok(parse_quote! {
-        type #request: #root::Request<Payload = #payload, Error = Self::Erro>> #send;
+        type #request: #root::Request<Payload = #payload, Error = Self::Error> #send;
     })
 }
 
