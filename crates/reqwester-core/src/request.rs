@@ -22,9 +22,6 @@ pub trait Request:
     /// Send this request.
     fn send(self) -> Self::Send;
 
-    /// Send this request by reference.
-    ///
-    /// This method is analogous to [`send`], but it doesn’t take the ownership of self.
-    /// This allows to send the same (or slightly different) requester over and over.
+    /// Send this request without consuming it.
     fn send_ref(&self) -> Self::SendRef<'_>;
 }

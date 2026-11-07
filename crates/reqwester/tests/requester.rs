@@ -50,7 +50,7 @@ pub trait Api {
 
 struct Impl;
 
-#[requester]
+#[requester(Send)]
 impl Api for Impl {
     type Error = ();
 

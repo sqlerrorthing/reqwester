@@ -1,6 +1,6 @@
 pub type HasPayloadOutput<T> = <<T as HasPayload>::Payload as Payload>::Output;
 
-/// A trait for types that act as containers for a specific [`Payload`]
+/// A container of a [`Payload`].
 pub trait HasPayload {
     type Payload: Payload;
 
@@ -9,9 +9,8 @@ pub trait HasPayload {
     fn payload_mut(&mut self) -> &mut Self::Payload;
 }
 
-/// Defines the data structure sent in a request and its corresponding successful output type.
+/// Data sent in a request and its successful output.
 pub trait Payload {
-    /// The return type
-    /// Note: it should not include `Result` wrappers
+    /// The output, without `Result` wrappers.
     type Output;
 }

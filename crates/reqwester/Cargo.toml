@@ -7,10 +7,15 @@ repository.workspace = true
 [features]
 default = []
 macros = ["dep:reqwester-macros"]
+# Wrappers (retries...), re-exported as `reqwester::util`, and the matching `#[requester]` adapters.
+util = ["dep:reqwester-util", "reqwester-macros?/util"]
 
 [dependencies]
 reqwester-core = { path = "../reqwester-core" }
 reqwester-macros = { path = "../reqwester-macros", optional = true }
+reqwester-util = { path = "../reqwester-util", optional = true }
 
 [dev-dependencies]
-reqwester = { path = ".", features = ["macros"] }
+reqwester = { path = ".", features = ["macros", "util"] }
+futures-core = "0.3"
+tokio = { version = "1", features = ["rt", "macros", "time", "test-util"] }

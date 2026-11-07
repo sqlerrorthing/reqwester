@@ -1,0 +1,19 @@
+[package]
+name = "reqwester-util"
+description = "Request wrappers (retries, ...) for reqwester"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[features]
+default = ["tokio"]
+# `tokio::time::sleep` based [`Sleeper`](retryable::Sleeper) as the default one.
+tokio = ["dep:tokio"]
+
+[dependencies]
+reqwester-core = { path = "../reqwester-core" }
+futures-core = "0.3"
+tokio = { version = "1", default-features = false, features = ["time"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "time", "test-util"] }

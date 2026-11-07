@@ -5,17 +5,14 @@ mod requester;
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput, Item};
 
-/// ```
-/// /// Get a user!
-/// #[derive(Debug, Payload)]
-/// #[payload(returns = Option<bool>)]
-/// pub struct GetUser {
-///     /// The user id
-///     pub user_id: u64,
+/// Derives [`Payload`], `new` (required fields only) and field setters.
 ///
-///     /// Optional metadata ok ik!
-///     /// All optionals should been last
-///     pub include_metadata: Option<bool>
+/// ```ignore
+/// #[derive(Payload)]
+/// #[payload(returns = Option<bool>)]
+/// pub struct GetUser<'a> {
+///     pub user_id: u64,
+///     pub note: Option<&'a str>,
 /// }
 /// ```
 #[proc_macro_derive(Payload, attributes(payload))]
@@ -27,26 +24,18 @@ pub fn payload(input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// ```
-/// /// Just requester
-/// #[requester(Send)]
-/// pub trait Requester {
-///     type Error: core::error::Error + Send;
+/// Expands a requester trait (or its impl) into request types and methods.
 ///
-///     fn get_me(&self);
-/// }
-/// ```
+/// Arguments: `Send`, `Clone` (request guarantees), `factory`, `retryable` (adapters).
+/// In an impl, a method without a return type gets `type X = impl Request<..>`.
 ///
-/// will expand to
+/// ```ignore
+/// #[requester(Send, factory)]
+/// pub trait Api {
+///     type Error: std::error::Error + Send;
 ///
-/// ```
-/// /// Just requester
-/// pub trait Requester {
-///     type Error: core::error::Error + Send;
-///
-///     type GetMe: Request<Payload = GetMe, Error = Self::Err> + Send;
-///
-///     fn get_me(&self) -> Self::GetMe;
+///     fn get_me(&self);                      // -> Self::GetMe
+///     fn get_user<'a>(&self, id: &'a str);   // -> Self::GetUser<'a>
 /// }
 /// ```
 #[proc_macro_attribute]

@@ -4,32 +4,15 @@ use quote::{format_ident, quote};
 use radix_fmt::radix_36;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
-use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{custom_keyword, parse, parse_quote, Error, FnArg, Generics, ImplItem, ImplItemFn, ImplItemType, Item, ItemImpl, ItemTrait, Lifetime, Pat, Result, ReturnType, Signature, Stmt, Token, TraitItem, TraitItemFn, TraitItemType, Type};
+use syn::{parse, parse_quote, Error, FnArg, Generics, ImplItem, ImplItemFn, ImplItemType, Item, ItemImpl, ItemTrait, Lifetime, Pat, Result, ReturnType, Signature, Stmt, Token, TraitItem, TraitItemFn, TraitItemType, Type};
 
-struct Attr {
-    send: bool,
-}
+pub(self) mod adapter;
+mod adapters;
+mod attr;
 
-impl Parse for Attr {
-    fn parse(input: ParseStream) -> Result<Self> {
-        custom_keyword!(Send);
-
-        let send = if input.is_empty() {
-            false
-        } else {
-            input.parse::<Send>()?;
-            true
-        };
-
-        if !input.is_empty() {
-            return Err(input.error("unexpected attribute argument"));
-        }
-
-        Ok(Self { send })
-    }
-}
+use adapter::{Adapter, Context, Output};
+use attr::Attr;
 
 pub(crate) fn generate(input: Item, attr: proc_macro::TokenStream) -> Result<TokenStream> {
     let root = root!("reqwester-core");
@@ -37,7 +20,10 @@ pub(crate) fn generate(input: Item, attr: proc_macro::TokenStream) -> Result<Tok
 
     match input {
         Item::Trait(item) => generate_trait(item, &root, &attr),
-        Item::Impl(item) => generate_impl(item, &root),
+        Item::Impl(item) => {
+            attr.ensure_no_adapters()?;
+            generate_impl(item, &root, &attr)
+        }
         other => Err(Error::new_spanned(
             other,
             "#[requester] can only be applied to a trait or a trait impl",
@@ -52,12 +38,14 @@ fn generate_trait(mut input: ItemTrait, root: &TokenStream, attr: &Attr) -> Resu
         .find(|i| matches!(i, TraitItem::Type(TraitItemType { ident, .. }) if ident == "Error"))
         .ok_or_else(|| Error::new(Span::call_site(), "An assoc type `Error` is required"))?;
 
+    let adapters = attr.adapters()?;
+
     let mut items = Vec::with_capacity(input.items.len());
 
     for item in input.items {
         match item {
             TraitItem::Fn(mut fun) => {
-                items.push(TraitItem::Type(expand_trait_fn(root, attr, &mut fun)?));
+                items.push(TraitItem::Type(expand_trait_fn(root, attr, &adapters, &mut fun)?));
                 items.push(TraitItem::Fn(fun));
             }
             x => items.push(x),
@@ -67,22 +55,74 @@ fn generate_trait(mut input: ItemTrait, root: &TokenStream, attr: &Attr) -> Resu
     input.items = items;
     let forwards = generate_forward(&input);
 
+    let generated = run_adapters(&input, root, attr, &adapters)?;
+
     Ok(quote! {
         #input
         #forwards
+        #generated
     })
 }
 
-/// Expands an `impl Requester for Api { .. }` block.
-///
-/// For every method an associated type is generated:
-/// - `fn f(&self, ..) -> Ty` becomes `type F = Ty;`
-/// - `fn f(&self, ..)` becomes `type F = impl Request<Payload = F, Error = Self::Error>;`
-///   (requires `#![feature(impl_trait_in_assoc_type)]` in the user crate)
-///
-/// Arguments are rewritten exactly like in the trait (`impl Into<T>`), and converted
-/// back to their declared types at the start of the body, so the body sees the plain types.
-fn generate_impl(mut input: ItemImpl, root: &TokenStream) -> Result<TokenStream> {
+/// Runs adapters over the expanded trait and builds the `Ext` traits.
+fn run_adapters(
+    input: &ItemTrait,
+    root: &TokenStream,
+    attr: &Attr,
+    adapters: &[Box<dyn Adapter>],
+) -> Result<TokenStream> {
+    if adapters.is_empty() {
+        return Ok(TokenStream::new());
+    }
+
+    let ctx = Context::new(input, root, attr, adapters)?;
+    let mut out = Output::default();
+
+    for adapter in adapters {
+        adapter.generate(&ctx, &mut out)?;
+    }
+
+    let Context { vis, ident, .. } = &ctx;
+    let items = &out.items;
+
+    let ext = (!out.requester_ext.is_empty()).then(|| {
+        let ext = format_ident!("{ident}Ext");
+        let methods = &out.requester_ext;
+
+        quote! {
+            /// Adapter extension methods.
+            #vis trait #ext: #ident + ::core::marker::Sized {
+                #(#methods)*
+            }
+
+            impl<__R: #ident> #ext for __R {}
+        }
+    });
+
+    let factory_ext = (!out.factory_ext.is_empty()).then(|| {
+        let factory = format_ident!("{ident}Factory");
+        let ext = format_ident!("{ident}FactoryExt");
+        let methods = &out.factory_ext;
+
+        quote! {
+            /// Adapter extension methods of the factory.
+            #vis trait #ext: #factory + ::core::marker::Sized {
+                #(#methods)*
+            }
+
+            impl<__F: #factory> #ext for __F {}
+        }
+    });
+
+    Ok(quote! {
+        #(#items)*
+        #ext
+        #factory_ext
+    })
+}
+
+/// Expands `impl Requester for Api`: generates request types, converts `Into` args back.
+fn generate_impl(mut input: ItemImpl, root: &TokenStream, attr: &Attr) -> Result<TokenStream> {
     if input.trait_.is_none() {
         return Err(Error::new_spanned(
             &input,
@@ -95,7 +135,7 @@ fn generate_impl(mut input: ItemImpl, root: &TokenStream) -> Result<TokenStream>
     for item in input.items {
         match item {
             ImplItem::Fn(mut fun) => {
-                let ty = expand_impl_fn(root, &mut fun)?;
+                let ty = expand_impl_fn(root, attr, &mut fun)?;
                 items.push(ImplItem::Type(ty));
                 items.push(ImplItem::Fn(fun));
             }
@@ -108,7 +148,7 @@ fn generate_impl(mut input: ItemImpl, root: &TokenStream) -> Result<TokenStream>
     Ok(quote!(#input))
 }
 
-/// `<'a, 'b>` of the method, to be re-applied to the generated associated type.
+/// Lifetimes of the method, re-applied to the generated associated type.
 fn method_lifetimes(sig: &Signature) -> Vec<Lifetime> {
     sig.generics
         .lifetimes()
@@ -116,8 +156,7 @@ fn method_lifetimes(sig: &Signature) -> Vec<Lifetime> {
         .collect()
 }
 
-/// Payload type of a request: the explicit return type, or the camel-cased
-/// method name parametrized with the method lifetimes.
+/// Explicit return type, or the camel-cased method name with the method lifetimes.
 fn payload_type(sig: &Signature, lifetimes: &[Lifetime]) -> Result<Type> {
     match &sig.output {
         ReturnType::Default => {
@@ -133,7 +172,29 @@ fn gat_generics(lifetimes: &[Lifetime]) -> Generics {
     parse_quote!(<#(#lifetimes),*>)
 }
 
-fn expand_trait_fn(root: &TokenStream, attr: &Attr, fun: &mut TraitItemFn) -> Result<TraitItemType> {
+/// Bound of every request; `Send`/`Clone` are stated here so opaque `impl Request` types satisfy them.
+fn request_bound(root: &TokenStream, attr: &Attr, payload: &Type) -> TokenStream {
+    let clone = attr.clone.then(|| quote!(+ ::core::clone::Clone));
+
+    if attr.send {
+        quote! {
+            #root::Request<
+                Payload = #payload,
+                Error = Self::Error,
+                Send: ::core::marker::Send,
+            > + ::core::marker::Send #clone
+        }
+    } else {
+        quote!(#root::Request<Payload = #payload, Error = Self::Error> #clone)
+    }
+}
+
+fn expand_trait_fn(
+    root: &TokenStream,
+    attr: &Attr,
+    adapters: &[Box<dyn Adapter>],
+    fun: &mut TraitItemFn,
+) -> Result<TraitItemType> {
     if fun.sig.asyncness.is_some() {
         return Err(Error::new_spanned(
             fun.sig.asyncness,
@@ -150,14 +211,18 @@ fn expand_trait_fn(root: &TokenStream, attr: &Attr, fun: &mut TraitItemFn) -> Re
 
     expand_fn_args(&mut fun.sig)?;
 
-    let send = attr.send.then_some(quote!(+ Send));
+    let bound = request_bound(root, attr, &payload);
+    let bounds = adapters
+        .iter()
+        .flat_map(|adapter| adapter.request_bounds(&lifetimes))
+        .map(|bound| quote!(+ #bound));
 
     Ok(parse_quote! {
-        type #request #generics: #root::Request<Payload = #payload, Error = Self::Error> #send;
+        type #request #generics: #bound #(#bounds)*;
     })
 }
 
-fn expand_impl_fn(root: &TokenStream, fun: &mut ImplItemFn) -> Result<ImplItemType> {
+fn expand_impl_fn(root: &TokenStream, attr: &Attr, fun: &mut ImplItemFn) -> Result<ImplItemType> {
     if fun.sig.asyncness.is_some() {
         return Err(Error::new_spanned(
             fun.sig.asyncness,
@@ -172,7 +237,8 @@ fn expand_impl_fn(root: &TokenStream, fun: &mut ImplItemFn) -> Result<ImplItemTy
     let ty: Type = match &fun.sig.output {
         ReturnType::Default => {
             let payload = payload_type(&fun.sig, &lifetimes)?;
-            parse_quote! { impl #root::Request<Payload = #payload, Error = Self::Error> }
+            let bound = request_bound(root, attr, &payload);
+            parse_quote! { impl #bound }
         }
         ReturnType::Type(_, ret) => (**ret).clone(),
     };
@@ -187,14 +253,7 @@ fn expand_impl_fn(root: &TokenStream, fun: &mut ImplItemFn) -> Result<ImplItemTy
     })
 }
 
-/// Rewrites every plain argument type `T` into `impl Into<T>`
-/// (and `Vec<T>` into `impl IntoIterator<Item = T>`).
-///
-/// Arguments that are already `impl Trait` (or a method generic) are left untouched,
-/// so no synthetic generics are introduced into the signature.
-///
-/// Returns statements that convert the arguments back to their original types;
-/// they are only used for impl blocks, where the body needs the plain types.
+/// Rewrites arguments into `impl Into<T>` / `impl IntoIterator`; returns statements converting them back.
 fn expand_fn_args(sig: &mut Signature) -> Result<Vec<Stmt>> {
     let mut is_self_found = false;
     let mut rebinds = Vec::new();
