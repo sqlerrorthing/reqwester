@@ -11,3 +11,6 @@ macros = ["dep:reqwester-macros"]
 [dependencies]
 reqwester-core = { path = "../reqwester-core" }
 reqwester-macros = { path = "../reqwester-macros", optional = true }
+
+[dev-dependencies]
+reqwester = { path = ".", features = ["macros"] }

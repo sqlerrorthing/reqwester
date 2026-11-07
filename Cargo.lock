@@ -90,6 +90,7 @@ checksum = "ce082a9940a7ace2ad4a8b7d0b1eac6aa378895f18be598230c5f2284ac05426"
 name = "reqwester"
 version = "0.1.0"
 dependencies = [
+ "reqwester",
  "reqwester-core",
  "reqwester-macros",
 ]

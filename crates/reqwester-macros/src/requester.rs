@@ -1,12 +1,12 @@
 use crate::utils::{IdentCaseExt, get_container_inner_type, root};
-use proc_macro2::{Ident, Span, TokenStream};
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use radix_fmt::radix_36;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{custom_keyword, parse, parse_quote, Error, FnArg, GenericParam, ItemTrait, Result, ReturnType, Signature, Token, TraitItem, TraitItemFn, TraitItemType, Type, WherePredicate};
+use syn::{custom_keyword, parse, parse_quote, Error, FnArg, Generics, ImplItem, ImplItemFn, ImplItemType, Item, ItemImpl, ItemTrait, Lifetime, Pat, Result, ReturnType, Signature, Stmt, Token, TraitItem, TraitItemFn, TraitItemType, Type};
 
 struct Attr {
     send: bool,
@@ -31,10 +31,21 @@ impl Parse for Attr {
     }
 }
 
-pub(crate) fn generate(mut input: ItemTrait, attr: proc_macro::TokenStream) -> Result<TokenStream> {
+pub(crate) fn generate(input: Item, attr: proc_macro::TokenStream) -> Result<TokenStream> {
     let root = root!("reqwester-core");
     let attr = parse::<Attr>(attr)?;
 
+    match input {
+        Item::Trait(item) => generate_trait(item, &root, &attr),
+        Item::Impl(item) => generate_impl(item, &root),
+        other => Err(Error::new_spanned(
+            other,
+            "#[requester] can only be applied to a trait or a trait impl",
+        )),
+    }
+}
+
+fn generate_trait(mut input: ItemTrait, root: &TokenStream, attr: &Attr) -> Result<TokenStream> {
     input
         .items
         .iter()
@@ -46,7 +57,7 @@ pub(crate) fn generate(mut input: ItemTrait, attr: proc_macro::TokenStream) -> R
     for item in input.items {
         match item {
             TraitItem::Fn(mut fun) => {
-                items.push(TraitItem::Type(expand_fn(&root, &attr, &mut fun)?));
+                items.push(TraitItem::Type(expand_trait_fn(root, attr, &mut fun)?));
                 items.push(TraitItem::Fn(fun));
             }
             x => items.push(x),
@@ -62,7 +73,67 @@ pub(crate) fn generate(mut input: ItemTrait, attr: proc_macro::TokenStream) -> R
     })
 }
 
-fn expand_fn(root: &TokenStream, attr: &Attr, fun: &mut TraitItemFn) -> Result<TraitItemType> {
+/// Expands an `impl Requester for Api { .. }` block.
+///
+/// For every method an associated type is generated:
+/// - `fn f(&self, ..) -> Ty` becomes `type F = Ty;`
+/// - `fn f(&self, ..)` becomes `type F = impl Request<Payload = F, Error = Self::Error>;`
+///   (requires `#![feature(impl_trait_in_assoc_type)]` in the user crate)
+///
+/// Arguments are rewritten exactly like in the trait (`impl Into<T>`), and converted
+/// back to their declared types at the start of the body, so the body sees the plain types.
+fn generate_impl(mut input: ItemImpl, root: &TokenStream) -> Result<TokenStream> {
+    if input.trait_.is_none() {
+        return Err(Error::new_spanned(
+            &input,
+            "#[requester] can only be applied to a trait impl",
+        ));
+    }
+
+    let mut items = Vec::with_capacity(input.items.len());
+
+    for item in input.items {
+        match item {
+            ImplItem::Fn(mut fun) => {
+                let ty = expand_impl_fn(root, &mut fun)?;
+                items.push(ImplItem::Type(ty));
+                items.push(ImplItem::Fn(fun));
+            }
+            x => items.push(x),
+        }
+    }
+
+    input.items = items;
+
+    Ok(quote!(#input))
+}
+
+/// `<'a, 'b>` of the method, to be re-applied to the generated associated type.
+fn method_lifetimes(sig: &Signature) -> Vec<Lifetime> {
+    sig.generics
+        .lifetimes()
+        .map(|l| l.lifetime.clone())
+        .collect()
+}
+
+/// Payload type of a request: the explicit return type, or the camel-cased
+/// method name parametrized with the method lifetimes.
+fn payload_type(sig: &Signature, lifetimes: &[Lifetime]) -> Result<Type> {
+    match &sig.output {
+        ReturnType::Default => {
+            let name = sig.ident.to_upper_camel_case();
+            Ok(parse_quote!(#name <#(#lifetimes),*>))
+        }
+        ReturnType::Type(_, ret) if let Type::Path(_) = ret.deref() => Ok((**ret).clone()),
+        _ => Err(Error::new_spanned(&sig.output, "Unsupported return type")),
+    }
+}
+
+fn gat_generics(lifetimes: &[Lifetime]) -> Generics {
+    parse_quote!(<#(#lifetimes),*>)
+}
+
+fn expand_trait_fn(root: &TokenStream, attr: &Attr, fun: &mut TraitItemFn) -> Result<TraitItemType> {
     if fun.sig.asyncness.is_some() {
         return Err(Error::new_spanned(
             fun.sig.asyncness,
@@ -70,131 +141,130 @@ fn expand_fn(root: &TokenStream, attr: &Attr, fun: &mut TraitItemFn) -> Result<T
         ));
     }
 
-    let payload = match &fun.sig.output {
-        ReturnType::Default => fun.sig.ident.to_upper_camel_case().into(),
-        ReturnType::Type(_, ret) if let Type::Path(path) = ret.deref() => path.path.clone(),
-        _ => {
-            return Err(Error::new_spanned(
-                &fun.sig.output,
-                "Unsupported return type",
-            ));
-        }
-    };
-
+    let lifetimes = method_lifetimes(&fun.sig);
+    let payload = payload_type(&fun.sig, &lifetimes)?;
     let request = fun.sig.ident.to_upper_camel_case();
+    let generics = gat_generics(&lifetimes);
 
-    fun.sig.output = parse_quote! { -> Self::#request };
+    fun.sig.output = parse_quote! { -> Self::#request #generics };
 
     expand_fn_args(&mut fun.sig)?;
 
     let send = attr.send.then_some(quote!(+ Send));
 
     Ok(parse_quote! {
-        type #request: #root::Request<Payload = #payload, Error = Self::Error> #send;
+        type #request #generics: #root::Request<Payload = #payload, Error = Self::Error> #send;
     })
 }
 
-fn generate_name(mut idx: usize) -> Ident {
-    let mut name = String::new();
-    loop {
-        let rem = idx % 26;
-        name.push((b'A' + rem as u8) as char);
-        if idx < 26 {
-            break;
-        }
-        idx = (idx / 26) - 1;
+fn expand_impl_fn(root: &TokenStream, fun: &mut ImplItemFn) -> Result<ImplItemType> {
+    if fun.sig.asyncness.is_some() {
+        return Err(Error::new_spanned(
+            fun.sig.asyncness,
+            "Requester fn's cannot be async",
+        ));
     }
-    let reversed: String = name.chars().rev().collect();
-    format_ident!("{}", reversed)
+
+    let lifetimes = method_lifetimes(&fun.sig);
+    let request = fun.sig.ident.to_upper_camel_case();
+    let generics = gat_generics(&lifetimes);
+
+    let ty: Type = match &fun.sig.output {
+        ReturnType::Default => {
+            let payload = payload_type(&fun.sig, &lifetimes)?;
+            parse_quote! { impl #root::Request<Payload = #payload, Error = Self::Error> }
+        }
+        ReturnType::Type(_, ret) => (**ret).clone(),
+    };
+
+    fun.sig.output = parse_quote! { -> Self::#request #generics };
+
+    let rebinds = expand_fn_args(&mut fun.sig)?;
+    fun.block.stmts.splice(0..0, rebinds);
+
+    Ok(parse_quote! {
+        type #request #generics = #ty;
+    })
 }
 
-fn get_next_generic_ident(mut idx: usize, existing: &[Ident]) -> (Ident, usize) {
-    loop {
-        let ident = generate_name(idx);
-        idx += 1;
-        if !existing.contains(&ident) {
-            return (ident, idx);
-        }
-    }
-}
-
-fn is_already_generic(ty: &Type, existing_generics: &[Ident]) -> bool {
-    let mut current_ty = ty;
-    if let Type::Reference(type_ref) = current_ty {
-        current_ty = &type_ref.elem;
-    }
-
-    match current_ty {
-        Type::ImplTrait(_) => true,
-        Type::Path(type_path) if type_path.path.segments.len() == 1 => {
-            let ident = &type_path.path.segments[0].ident;
-            existing_generics.contains(ident)
-        }
-        _ => false,
-    }
-}
-
-fn expand_fn_args(sig: &mut Signature) -> Result<()> {
+/// Rewrites every plain argument type `T` into `impl Into<T>`
+/// (and `Vec<T>` into `impl IntoIterator<Item = T>`).
+///
+/// Arguments that are already `impl Trait` (or a method generic) are left untouched,
+/// so no synthetic generics are introduced into the signature.
+///
+/// Returns statements that convert the arguments back to their original types;
+/// they are only used for impl blocks, where the body needs the plain types.
+fn expand_fn_args(sig: &mut Signature) -> Result<Vec<Stmt>> {
     let mut is_self_found = false;
+    let mut rebinds = Vec::new();
 
-    let mut new_generics: Vec<GenericParam> = Vec::new();
-    let mut where_predicates: Vec<WherePredicate> = Vec::new();
-
-    let mut generic_idx = 0;
-
-    let existing_generics: Vec<Ident> = sig
-        .generics
-        .type_params()
-        .map(|tp| tp.ident.clone())
-        .collect();
+    let generics = sig.generics.clone();
 
     for arg in sig.inputs.iter_mut() {
-        if let FnArg::Typed(pat) = arg {
-            if is_already_generic(&pat.ty, &existing_generics) {
-                continue;
-            }
-
-            let (gen_ident, next_idx) = get_next_generic_ident(generic_idx, &existing_generics);
-            generic_idx = next_idx;
-
-            if let Some(inner) = get_container_inner_type("Vec", &pat.ty.clone()) {
-                pat.ty = parse_quote! { #gen_ident };
-
-                new_generics.push(parse_quote! { #gen_ident });
-
-                where_predicates.push(parse_quote! {
-                    #gen_ident: ::core::iter::IntoIterator<Item = #inner>
-                });
-            } else {
-                let ty = pat.ty.clone();
-                pat.ty = parse_quote! { #gen_ident };
-
-                new_generics.push(parse_quote! { #gen_ident });
-
-                where_predicates.push(parse_quote! {
-                    #gen_ident: ::core::convert::Into<#ty>
-                });
-            }
-        } else {
+        let FnArg::Typed(pat) = arg else {
             is_self_found = true;
+            continue;
+        };
+
+        if matches!(&*pat.ty, Type::ImplTrait(_)) || is_generic_param(&pat.ty, &generics) {
+            continue;
         }
+
+        let original = (*pat.ty).clone();
+
+        let (new_ty, convert): (Type, TokenStream) = match get_container_inner_type("Vec", &original) {
+            Some(inner) => (
+                parse_quote! { impl ::core::iter::IntoIterator<Item = #inner> },
+                quote!(::core::iter::IntoIterator::into_iter),
+            ),
+            None => (
+                parse_quote! { impl ::core::convert::Into<#original> },
+                quote!(::core::convert::Into::into),
+            ),
+        };
+
+        // The parameter itself never needs `mut`; the rebinding keeps the user's pattern.
+        let Pat::Ident(ident) = &mut *pat.pat else {
+            return Err(Error::new_spanned(
+                &pat.pat,
+                "Requester arguments must be simple identifiers",
+            ));
+        };
+        let binding = ident.clone();
+        ident.mutability = None;
+        let name = &ident.ident;
+
+        rebinds.push(if get_container_inner_type("Vec", &original).is_some() {
+            parse_quote! { let #binding: #original = #convert(#name).collect(); }
+        } else {
+            parse_quote! { let #binding: #original = #convert(#name); }
+        });
+
+        pat.ty = Box::new(new_ty);
     }
 
     if is_self_found {
-        sig.generics.params.extend(new_generics);
-
-        if !where_predicates.is_empty() {
-            let where_clause = sig.generics.make_where_clause();
-            where_clause.predicates.extend(where_predicates);
-        }
-
-        Ok(())
+        Ok(rebinds)
     } else {
         Err(Error::new_spanned(
             &sig.inputs,
             "All requester methods must contain self receiver",
         ))
     }
+}
+
+fn is_generic_param(ty: &Type, generics: &syn::Generics) -> bool {
+    let ty = match ty {
+        Type::Reference(r) => &*r.elem,
+        ty => ty,
+    };
+
+    matches!(
+        ty,
+        Type::Path(p) if p.path.segments.len() == 1
+            && generics.type_params().any(|tp| tp.ident == p.path.segments[0].ident)
+    )
 }
 
 fn generate_forward(item: &ItemTrait) -> TokenStream {
@@ -248,6 +318,8 @@ fn generate_forward(item: &ItemTrait) -> TokenStream {
 fn forward_method(fun: &TraitItemFn) -> TokenStream {
     let ident = &fun.sig.ident;
     let ty = ident.to_upper_camel_case();
+    let lifetimes = method_lifetimes(&fun.sig);
+    let generics = gat_generics(&lifetimes);
 
     // first arg is receiver
     let args = fun
@@ -262,7 +334,7 @@ fn forward_method(fun: &TraitItemFn) -> TokenStream {
 
     quote! {
         (@method #ident $body:ident $ty:ident) => {
-            type #ty = $ty![#ty];
+            type #ty #generics = $ty![#ty #generics];
 
             #(#attrs)*
             #sig {

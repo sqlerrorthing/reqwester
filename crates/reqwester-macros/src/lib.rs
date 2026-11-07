@@ -3,7 +3,7 @@ mod utils;
 mod requester;
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, ItemTrait};
+use syn::{parse_macro_input, DeriveInput, Item};
 
 /// ```
 /// /// Get a user!
@@ -51,7 +51,7 @@ pub fn payload(input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn requester(attr: TokenStream, input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as ItemTrait);
+    let input = parse_macro_input!(input as Item);
 
     requester::generate(input, attr)
         .unwrap_or_else(|e| e.to_compile_error())
