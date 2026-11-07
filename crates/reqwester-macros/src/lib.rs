@@ -44,7 +44,7 @@ pub fn payload(input: TokenStream) -> TokenStream {
 /// pub trait Requester {
 ///     type Error: core::error::Error + Send;
 ///
-///     type GetMe: Request<Payload = GetMe, Err = Self::Err> + Send;
+///     type GetMe: Request<Payload = GetMe, Error = Self::Err> + Send;
 ///
 ///     fn get_me(&self) -> Self::GetMe;
 /// }
