@@ -6,14 +6,19 @@ edition.workspace = true
 repository.workspace = true
 
 [features]
-default = ["tokio"]
+default = ["tokio", "tracing"]
 # `tokio::time::sleep` based [`Sleeper`](retryable::Sleeper) as the default one.
 tokio = ["dep:tokio"]
+# `traced` wrapper.
+tracing = ["dep:tracing", "dep:pin-project-lite"]
 
 [dependencies]
 reqwester-core = { path = "../reqwester-core" }
 futures-core = "0.3"
 tokio = { version = "1", default-features = false, features = ["time"], optional = true }
+tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
+pin-project-lite = { version = "0.2", optional = true }
 
 [dev-dependencies]
+tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["rt", "macros", "time", "test-util"] }

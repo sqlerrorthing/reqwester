@@ -13,6 +13,12 @@ pub enum Error {
     Fatal,
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 #[derive(Debug, Clone, Payload)]
 #[payload(returns = String)]
 pub struct Greet<'a> {
@@ -70,7 +76,7 @@ impl<'p, P: Payload + Send + Sync + 'p> Request for Fake<'p, P> where P::Output:
     fn send_ref(&self) -> Self::SendRef<'_> { Box::pin(async move { self.attempt() }) }
 }
 
-#[requester(Send, factory, retryable)]
+#[requester(Send, factory, retryable, traced)]
 pub trait Api {
     type Error: Send + 'static;
 
@@ -171,4 +177,17 @@ async fn fallible_factory_passes_the_error() {
 
     let failing = ApiFactoryFn(|| Err::<Impl, _>(Error::Fatal)).retryable(Immediate.max_attempts(3));
     assert_eq!(failing.create().err(), Some(Error::Fatal));
+}
+
+#[tokio::test]
+async fn traced_composes_with_retryable_and_factories() {
+    let (api, calls) = api(1);
+
+    let name = String::from("bob");
+    let both = api.clone().traced().retryable(Immediate.max_attempts(3));
+    assert_eq!(both.greet(name.as_str()).await, Ok("hi bob".to_string()));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    let factory = { let api = api.clone(); move || api.clone() }.traced().retryable(Immediate.max_attempts(2));
+    assert!(factory.create().is_ok());
 }
