@@ -12,10 +12,8 @@ enum TestError {
     Fatal,
 }
 
-impl IsRetryable for TestError {
-    fn is_retryable(&self) -> bool {
-        matches!(self, Self::Flaky)
-    }
+fn flaky(error: &TestError) -> bool {
+    matches!(error, TestError::Flaky)
 }
 
 #[derive(Clone)]
@@ -89,7 +87,7 @@ async fn stops_on_policy() {
 #[tokio::test]
 async fn does_not_retry_non_retryable_errors() {
     let (req, calls) = Flaky::new(10, || TestError::Fatal);
-    let out = req.retryable(Immediate.max_attempts(5)).await;
+    let out = req.retryable(Immediate.max_attempts(5).when(flaky)).await;
 
     assert_eq!(out, Err(TestError::Fatal));
     assert_eq!(calls.load(Ordering::SeqCst), 1);

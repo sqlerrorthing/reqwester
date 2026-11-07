@@ -1,4 +1,4 @@
-use super::{Attempt, Decision, DefaultSleeper, IsRetryable, RetryPolicy, Sleeper};
+use super::{Attempt, Decision, DefaultSleeper, RetryPolicy, Sleeper};
 use reqwester_core::payload::{HasPayload, HasPayloadOutput};
 use reqwester_core::request::RequestResult;
 use reqwester_core::Request;
@@ -47,7 +47,6 @@ impl<'r, R, P, S> RetryableRequest<'r, R, P, S> {
 async fn run<R, P, S>(inner: &R, policy: &P, sleeper: &S) -> RequestResult<R>
 where
     R: Request + Clone,
-    R::Error: IsRetryable,
     P: RetryPolicy<R::Error> + ?Sized,
     S: Sleeper,
 {
@@ -61,10 +60,6 @@ where
         };
 
         failed = failed.saturating_add(1);
-
-        if !error.is_retryable() {
-            return Err(error);
-        }
 
         let attempt = Attempt {
             number: failed,
@@ -101,7 +96,7 @@ impl<'r, R, P, S> IntoFuture for RetryableRequest<'r, R, P, S>
 where
     R: Request + Clone + Send + Sync + 'r,
     R::Send: Send,
-    R::Error: IsRetryable + Send + 'r,
+    R::Error: Send + 'r,
     HasPayloadOutput<R>: Send + 'r,
     P: RetryPolicy<R::Error> + Send + Sync + 'r,
     S: Sleeper,
@@ -118,7 +113,7 @@ impl<'r, R, P, S> Request for RetryableRequest<'r, R, P, S>
 where
     R: Request + Clone + Send + Sync + 'r,
     R::Send: Send,
-    R::Error: IsRetryable + Send + 'r,
+    R::Error: Send + 'r,
     HasPayloadOutput<R>: Send + 'r,
     P: RetryPolicy<R::Error> + Send + Sync + 'r,
     S: Sleeper,

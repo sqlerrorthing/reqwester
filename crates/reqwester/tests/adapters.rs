@@ -13,12 +13,6 @@ pub enum Error {
     Fatal,
 }
 
-impl IsRetryable for Error {
-    fn is_retryable(&self) -> bool {
-        matches!(self, Self::Flaky)
-    }
-}
-
 #[derive(Debug, Clone, Payload)]
 #[payload(returns = String)]
 pub struct Greet<'a> {
@@ -78,7 +72,7 @@ impl<'p, P: Payload + Send + Sync + 'p> Request for Fake<'p, P> where P::Output:
 
 #[requester(Send, factory, retryable)]
 pub trait Api {
-    type Error: IsRetryable + Send + 'static;
+    type Error: Send + 'static;
 
     fn greet<'a>(&self, name: &'a str);
     fn count(&self, items: Vec<u8>);
@@ -143,7 +137,7 @@ async fn gives_up_by_policy() {
 
 #[tokio::test]
 async fn factory_for_closures_arc_and_retryable() {
-    fn create_with<F: ApiFactory>(f: &F) -> F::Requester { f.create() }
+    fn create_with<F: ApiFactory>(f: &F) -> F::Requester { f.create().ok().unwrap() }
 
     let (api, calls) = api(2);
 
@@ -167,4 +161,14 @@ async fn retryable_requester_is_a_requester_and_spawnable() {
 
     let out = tokio::spawn(async move { api.count(vec![9]).await }).await.unwrap();
     assert_eq!(out, Ok(1));
+}
+
+#[tokio::test]
+async fn fallible_factory_passes_the_error() {
+    let (api, _) = api(0);
+    let ok = ApiFactoryFn({ let api = api.clone(); move || Ok(api.clone()) });
+    assert!(ok.create().is_ok());
+
+    let failing = ApiFactoryFn(|| Err::<Impl, _>(Error::Fatal)).retryable(Immediate.max_attempts(3));
+    assert_eq!(failing.create().err(), Some(Error::Fatal));
 }

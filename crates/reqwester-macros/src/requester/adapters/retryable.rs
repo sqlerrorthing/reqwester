@@ -56,9 +56,8 @@ impl Adapter for Retryable {
         let types_and_methods = ctx.methods.iter().map(|m| method(ctx, m, &retry));
 
         let doc = format!(
-            "A [`{ident}`] whose requests are re-sent according to a \
-             [`RetryPolicy`]({retry}::RetryPolicy) when their error is \
-             [retryable]({retry}::IsRetryable)."
+            "A [`{ident}`] whose failed requests are re-sent according to a \
+             [`RetryPolicy`]({retry}::RetryPolicy)."
         );
 
         out.items.push(quote! {
@@ -160,14 +159,15 @@ impl Adapter for Retryable {
                     __F: #factory,
                     #factory_bounds
                 {
+                    type Error = <__F as #factory>::Error;
                     type Requester = #retryable<<__F as #factory>::Requester, __P, __S>;
 
-                    fn create(&self) -> Self::Requester {
-                        #retryable::shared(
-                            #factory::create(&self.inner),
+                    fn create(&self) -> ::core::result::Result<Self::Requester, Self::Error> {
+                        ::core::result::Result::Ok(#retryable::shared(
+                            #factory::create(&self.inner)?,
                             ::std::sync::Arc::clone(&self.policy),
                             ::core::clone::Clone::clone(&self.sleeper),
-                        )
+                        ))
                     }
                 }
             });
@@ -201,7 +201,7 @@ fn bounds(ctx: &Context<'_>, r: &TokenStream) -> TokenStream {
     quote! {
         #r: #ident,
         #(#clone,)*
-        <#r as #ident>::Error: #retry::IsRetryable + ::core::marker::Send + 'static,
+        <#r as #ident>::Error: ::core::marker::Send + 'static,
         __P: #retry::RetryPolicy<<#r as #ident>::Error> + ::core::marker::Send + ::core::marker::Sync + 'static,
         __S: #retry::Sleeper,
     }
