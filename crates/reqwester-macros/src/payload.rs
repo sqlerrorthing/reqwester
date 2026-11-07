@@ -23,7 +23,8 @@ impl Parse for Args {
         let mut error = parse_quote!(!);
 
         for arg in args {
-            let ty: Type = syn::parse2(quote! { #arg.value })?;
+            let value = arg.value.clone();
+            let ty: Type = syn::parse2(quote! { #value })?;
 
             if arg.path.is_ident("returns") {
                 returns = Some(ty);
