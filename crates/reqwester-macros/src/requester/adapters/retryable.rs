@@ -202,7 +202,7 @@ fn bounds(ctx: &Context<'_>, r: &TokenStream) -> TokenStream {
         #r: #ident,
         #(#clone,)*
         <#r as #ident>::Error: #retry::IsRetryable + ::core::marker::Send + 'static,
-        __P: #retry::RetryPolicy + ::core::marker::Send + ::core::marker::Sync + 'static,
+        __P: #retry::RetryPolicy<<#r as #ident>::Error> + ::core::marker::Send + ::core::marker::Sync + 'static,
         __S: #retry::Sleeper,
     }
 }

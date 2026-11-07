@@ -1,5 +1,5 @@
-//! Retrying of failed requests: [`IsRetryable`] says if an error can be retried,
-//! a chainable [`RetryPolicy`] says if and when to retry.
+//! Retrying of failed requests: [`IsRetryable`] says if an error can be retried at all,
+//! a chainable [`RetryPolicy`] (which sees the error) says if and when to retry.
 //!
 //! ```ignore
 //! let policy = Exponential::new(Duration::from_millis(100)).cap(Duration::from_secs(5)).max_attempts(5);

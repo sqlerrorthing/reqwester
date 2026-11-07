@@ -48,7 +48,7 @@ async fn run<R, P, S>(inner: &R, policy: &P, sleeper: &S) -> RequestResult<R>
 where
     R: Request + Clone,
     R::Error: IsRetryable,
-    P: RetryPolicy + ?Sized,
+    P: RetryPolicy<R::Error> + ?Sized,
     S: Sleeper,
 {
     let started = Instant::now();
@@ -69,6 +69,7 @@ where
         let attempt = Attempt {
             number: failed,
             elapsed: started.elapsed(),
+            error: &error,
         };
 
         match policy.decide(attempt) {
@@ -102,7 +103,7 @@ where
     R::Send: Send,
     R::Error: IsRetryable + Send + 'r,
     HasPayloadOutput<R>: Send + 'r,
-    P: RetryPolicy + Send + Sync + 'r,
+    P: RetryPolicy<R::Error> + Send + Sync + 'r,
     S: Sleeper,
 {
     type Output = RequestResult<Self>;
@@ -119,7 +120,7 @@ where
     R::Send: Send,
     R::Error: IsRetryable + Send + 'r,
     HasPayloadOutput<R>: Send + 'r,
-    P: RetryPolicy + Send + Sync + 'r,
+    P: RetryPolicy<R::Error> + Send + Sync + 'r,
     S: Sleeper,
 {
     type Error = R::Error;

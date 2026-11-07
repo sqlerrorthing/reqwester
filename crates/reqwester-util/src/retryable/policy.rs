@@ -4,13 +4,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// State of the run, given to a [`RetryPolicy`] after a failed attempt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Attempt {
+#[derive(Debug)]
+pub struct Attempt<'a, E> {
     /// Failed attempts so far (starts at `1`).
     pub number: u32,
     /// Time since the first attempt.
     pub elapsed: Duration,
+    /// The error of the failed attempt.
+    pub error: &'a E,
 }
+
+impl<E> Clone for Attempt<'_, E> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<E> Copy for Attempt<'_, E> {}
 
 /// What to do after a failed attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,48 +43,59 @@ impl Decision {
 }
 
 /// Decides whether and when to retry. Stateless, so one policy can be shared.
-pub trait RetryPolicy {
-    fn decide(&self, attempt: Attempt) -> Decision;
+pub trait RetryPolicy<E> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision;
 }
 
-impl<P: RetryPolicy + ?Sized> RetryPolicy for &P {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, P: RetryPolicy<E> + ?Sized> RetryPolicy<E> for &P {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         (**self).decide(attempt)
     }
 }
 
-impl<P: RetryPolicy + ?Sized> RetryPolicy for Box<P> {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, P: RetryPolicy<E> + ?Sized> RetryPolicy<E> for Box<P> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         (**self).decide(attempt)
     }
 }
 
-impl<P: RetryPolicy + ?Sized> RetryPolicy for Arc<P> {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, P: RetryPolicy<E> + ?Sized> RetryPolicy<E> for Arc<P> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         (**self).decide(attempt)
     }
 }
+
+/// Marks policies that can be chained with [`RetryPolicyExt`].
+///
+/// A separate, error-agnostic trait: chaining must not depend on `E`, or `Fixed(..).and(..)`
+/// could not be called before the error type is known. Implement it for custom policies.
+pub trait Chainable {}
 
 /// Chaining of policies.
-pub trait RetryPolicyExt: RetryPolicy + Sized {
+pub trait RetryPolicyExt: Chainable + Sized {
     /// Retry if both agree; waits the longer delay.
-    fn and<O: RetryPolicy>(self, other: O) -> And<Self, O> {
+    fn and<O>(self, other: O) -> And<Self, O> {
         And(self, other)
     }
 
     /// Retry if either agrees; waits the shorter delay.
-    fn or<O: RetryPolicy>(self, other: O) -> Or<Self, O> {
+    fn or<O>(self, other: O) -> Or<Self, O> {
         Or(self, other)
     }
 
     /// At most `attempts` attempts in total.
     fn max_attempts(self, attempts: u32) -> And<Self, MaxAttempts> {
-        self.and(MaxAttempts(attempts))
+        And(self, MaxAttempts(attempts))
     }
 
     /// Stop after `elapsed` since the first attempt.
     fn max_elapsed(self, elapsed: Duration) -> And<Self, MaxElapsed> {
-        self.and(MaxElapsed(elapsed))
+        And(self, MaxElapsed(elapsed))
+    }
+
+    /// Retry only errors accepted by `predicate`.
+    fn when<E, F: Fn(&E) -> bool>(self, predicate: F) -> And<Self, When<F>> {
+        And(self, When(predicate))
     }
 
     /// Delay is at most `max`.
@@ -91,22 +112,38 @@ pub trait RetryPolicyExt: RetryPolicy + Sized {
     }
 
     /// Erases the policy type.
-    fn boxed(self) -> Box<dyn RetryPolicy + Send + Sync>
+    fn boxed<E>(self) -> Box<dyn RetryPolicy<E> + Send + Sync>
     where
-        Self: Send + Sync + 'static,
+        Self: RetryPolicy<E> + Send + Sync + 'static,
     {
         Box::new(self)
     }
 }
 
-impl<P: RetryPolicy> RetryPolicyExt for P {}
+impl<T: Chainable> RetryPolicyExt for T {}
+
+impl Chainable for Never {}
+impl Chainable for Immediate {}
+impl Chainable for Fixed {}
+impl Chainable for Linear {}
+impl Chainable for Exponential {}
+impl Chainable for MaxAttempts {}
+impl Chainable for MaxElapsed {}
+impl<F> Chainable for FromFn<F> {}
+impl<F> Chainable for When<F> {}
+impl<A, B> Chainable for And<A, B> {}
+impl<A, B> Chainable for Or<A, B> {}
+impl<P> Chainable for Cap<P> {}
+impl<P> Chainable for Jitter<P> {}
+impl<P: ?Sized> Chainable for Box<P> {}
+impl<P: ?Sized> Chainable for Arc<P> {}
 
 /// Never retries.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Never;
 
-impl RetryPolicy for Never {
-    fn decide(&self, _: Attempt) -> Decision {
+impl<E> RetryPolicy<E> for Never {
+    fn decide(&self, _: Attempt<'_, E>) -> Decision {
         Decision::Stop
     }
 }
@@ -115,8 +152,8 @@ impl RetryPolicy for Never {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Immediate;
 
-impl RetryPolicy for Immediate {
-    fn decide(&self, _: Attempt) -> Decision {
+impl<E> RetryPolicy<E> for Immediate {
+    fn decide(&self, _: Attempt<'_, E>) -> Decision {
         Decision::RETRY_NOW
     }
 }
@@ -125,8 +162,8 @@ impl RetryPolicy for Immediate {
 #[derive(Debug, Clone, Copy)]
 pub struct Fixed(pub Duration);
 
-impl RetryPolicy for Fixed {
-    fn decide(&self, _: Attempt) -> Decision {
+impl<E> RetryPolicy<E> for Fixed {
+    fn decide(&self, _: Attempt<'_, E>) -> Decision {
         Decision::retry_after(self.0)
     }
 }
@@ -143,8 +180,8 @@ impl Linear {
     }
 }
 
-impl RetryPolicy for Linear {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E> RetryPolicy<E> for Linear {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         Decision::retry_after(self.step.saturating_mul(attempt.number))
     }
 }
@@ -170,8 +207,8 @@ impl Exponential {
     }
 }
 
-impl RetryPolicy for Exponential {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E> RetryPolicy<E> for Exponential {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         let exp = attempt.number.saturating_sub(1).min(i32::MAX as u32) as i32;
         let secs = self.initial.as_secs_f64() * self.factor.powi(exp);
 
@@ -183,8 +220,8 @@ impl RetryPolicy for Exponential {
 #[derive(Debug, Clone, Copy)]
 pub struct MaxAttempts(pub u32);
 
-impl RetryPolicy for MaxAttempts {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E> RetryPolicy<E> for MaxAttempts {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         if attempt.number < self.0 {
             Decision::RETRY_NOW
         } else {
@@ -197,9 +234,23 @@ impl RetryPolicy for MaxAttempts {
 #[derive(Debug, Clone, Copy)]
 pub struct MaxElapsed(pub Duration);
 
-impl RetryPolicy for MaxElapsed {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E> RetryPolicy<E> for MaxElapsed {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         if attempt.elapsed < self.0 {
+            Decision::RETRY_NOW
+        } else {
+            Decision::Stop
+        }
+    }
+}
+
+/// Retries only errors accepted by the predicate.
+#[derive(Clone, Copy)]
+pub struct When<F>(pub F);
+
+impl<E, F: Fn(&E) -> bool> RetryPolicy<E> for When<F> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
+        if (self.0)(attempt.error) {
             Decision::RETRY_NOW
         } else {
             Decision::Stop
@@ -211,8 +262,8 @@ impl RetryPolicy for MaxElapsed {
 #[derive(Clone, Copy)]
 pub struct FromFn<F>(pub F);
 
-impl<F: Fn(Attempt) -> Decision> RetryPolicy for FromFn<F> {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, F: Fn(Attempt<'_, E>) -> Decision> RetryPolicy<E> for FromFn<F> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         (self.0)(attempt)
     }
 }
@@ -221,8 +272,8 @@ impl<F: Fn(Attempt) -> Decision> RetryPolicy for FromFn<F> {
 #[derive(Debug, Clone, Copy)]
 pub struct And<A, B>(pub A, pub B);
 
-impl<A: RetryPolicy, B: RetryPolicy> RetryPolicy for And<A, B> {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, A: RetryPolicy<E>, B: RetryPolicy<E>> RetryPolicy<E> for And<A, B> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         match (self.0.decide(attempt), self.1.decide(attempt)) {
             (Decision::Retry { after: a }, Decision::Retry { after: b }) => {
                 Decision::retry_after(a.max(b))
@@ -236,8 +287,8 @@ impl<A: RetryPolicy, B: RetryPolicy> RetryPolicy for And<A, B> {
 #[derive(Debug, Clone, Copy)]
 pub struct Or<A, B>(pub A, pub B);
 
-impl<A: RetryPolicy, B: RetryPolicy> RetryPolicy for Or<A, B> {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, A: RetryPolicy<E>, B: RetryPolicy<E>> RetryPolicy<E> for Or<A, B> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         match (self.0.decide(attempt), self.1.decide(attempt)) {
             (Decision::Retry { after: a }, Decision::Retry { after: b }) => {
                 Decision::retry_after(a.min(b))
@@ -256,8 +307,8 @@ pub struct Cap<P> {
     max: Duration,
 }
 
-impl<P: RetryPolicy> RetryPolicy for Cap<P> {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, P: RetryPolicy<E>> RetryPolicy<E> for Cap<P> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         match self.inner.decide(attempt) {
             Decision::Retry { after } => Decision::retry_after(after.min(self.max)),
             Decision::Stop => Decision::Stop,
@@ -272,8 +323,8 @@ pub struct Jitter<P> {
     ratio: f64,
 }
 
-impl<P: RetryPolicy> RetryPolicy for Jitter<P> {
-    fn decide(&self, attempt: Attempt) -> Decision {
+impl<E, P: RetryPolicy<E>> RetryPolicy<E> for Jitter<P> {
+    fn decide(&self, attempt: Attempt<'_, E>) -> Decision {
         match self.inner.decide(attempt) {
             Decision::Retry { after } => {
                 let random = RandomState::new().build_hasher().finish() as f64 / u64::MAX as f64;
@@ -291,10 +342,11 @@ mod tests {
 
     const MS: fn(u64) -> Duration = Duration::from_millis;
 
-    fn at(number: u32, elapsed_ms: u64) -> Attempt {
+    fn at(number: u32, elapsed_ms: u64) -> Attempt<'static, ()> {
         Attempt {
             number,
             elapsed: MS(elapsed_ms),
+            error: &(),
         }
     }
 
@@ -322,6 +374,15 @@ mod tests {
         let p = Never.or(Fixed(MS(5)));
         assert_eq!(p.decide(at(9, 0)), Decision::retry_after(MS(5)));
         assert_eq!(Never.or(Never).decide(at(1, 0)), Decision::Stop);
+    }
+
+    #[test]
+    fn when_looks_at_the_error() {
+        let p = Immediate.when(|e: &u32| *e > 1);
+        let at = |error| Attempt { number: 1, elapsed: MS(0), error };
+
+        assert_eq!(p.decide(at(&1)), Decision::Stop);
+        assert_eq!(p.decide(at(&2)), Decision::RETRY_NOW);
     }
 
     #[test]
