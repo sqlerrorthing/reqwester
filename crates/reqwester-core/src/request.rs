@@ -1,4 +1,4 @@
-use crate::payload::{HasPayload, PayloadError, PayloadOutput, RequestResult};
+use crate::payload::{HasPayload, PayloadOutput, RequestResult};
 
 
 /// A ready to send request.
