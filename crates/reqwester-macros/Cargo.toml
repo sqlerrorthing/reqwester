@@ -1,8 +1,10 @@
 [package]
 name = "reqwester-macros"
+description = "Macros for reqwester"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [features]
 # `retryable` adapter of `#[requester]`, requires `reqwester::util` at the use site.

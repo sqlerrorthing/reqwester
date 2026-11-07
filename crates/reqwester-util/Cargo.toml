@@ -1,9 +1,10 @@
 [package]
 name = "reqwester-util"
-description = "Request wrappers (retries, ...) for reqwester"
+description = "A set of utils for reqwester"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [features]
 default = ["tokio", "tracing"]
@@ -13,7 +14,7 @@ tokio = ["dep:tokio"]
 tracing = ["dep:tracing", "dep:pin-project-lite"]
 
 [dependencies]
-reqwester-core = { path = "../reqwester-core" }
+reqwester-core = { path = "../reqwester-core", version = "0.1.0" }
 futures-core = "0.3"
 tokio = { version = "1", default-features = false, features = ["time"], optional = true }
 tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }

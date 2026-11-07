@@ -1,8 +1,10 @@
 [package]
 name = "reqwester"
+description = "A small toolkit for building type-safe API clients"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [features]
 default = []
@@ -11,9 +13,9 @@ macros = ["dep:reqwester-macros"]
 util = ["dep:reqwester-util", "reqwester-macros?/util"]
 
 [dependencies]
-reqwester-core = { path = "../reqwester-core" }
-reqwester-macros = { path = "../reqwester-macros", optional = true }
-reqwester-util = { path = "../reqwester-util", optional = true }
+reqwester-core = { path = "../reqwester-core", version = "0.1.0" }
+reqwester-macros = { path = "../reqwester-macros", version = "0.1.0", optional = true }
+reqwester-util = { path = "../reqwester-util", version = "0.1.0", optional = true }
 
 [dev-dependencies]
 reqwester = { path = ".", features = ["macros", "util"] }
